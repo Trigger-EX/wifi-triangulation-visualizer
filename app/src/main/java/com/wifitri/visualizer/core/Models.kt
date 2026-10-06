@@ -3,7 +3,8 @@ package com.wifitri.visualizer.core
 import kotlin.math.PI
 
 /** One RSSI observation tagged with the user's dead-reckoned position (x = east, y = north, metres). */
-data class Sample(val x: Double, val y: Double, val rssi: Double, val headingRad: Double, val tMs: Long)
+/** [rssi] is Kalman-smoothed (used for direction finding); [raw] is the unfiltered reading (used for wall detection, where smoothing would blur steps). */
+data class Sample(val x: Double, val y: Double, val rssi: Double, val headingRad: Double, val tMs: Long, val raw: Double = rssi)
 
 enum class Method { NONE, GRADIENT, PATH_LOSS_FIT }
 

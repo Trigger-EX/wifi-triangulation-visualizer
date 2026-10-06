@@ -22,6 +22,9 @@ class BleViewModel(app: Application) : BaseTrackerViewModel(
     private var allDevices = emptyList<com.wifitri.visualizer.wifi.ScanResultUi>()
 
     init {
+        // Bluetooth scanning stays OFF until the user taps Start (it is not a purely passive mode on Android).
+        _state.update { it.copy(scanPaused = true) }
+        scanner.setPaused(true)
         viewModelScope.launch { scanner.devices.collect { allDevices = it; publishDevices() } }
         viewModelScope.launch { scanner.status.collect { st -> _state.update { it.copy(bleStatus = st) } } }
         viewModelScope.launch {

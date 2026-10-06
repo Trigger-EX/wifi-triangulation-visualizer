@@ -2,6 +2,7 @@ package com.wifitri.visualizer.ui
 
 import com.wifitri.visualizer.ble.BleStatus
 import com.wifitri.visualizer.core.ApEstimate
+import com.wifitri.visualizer.core.MapModel
 import com.wifitri.visualizer.core.Phase
 import com.wifitri.visualizer.core.Sample
 import com.wifitri.visualizer.core.Waypoint
@@ -50,6 +51,8 @@ data class UiState(
     val sampleCounts: Map<String, Int> = emptyMap(),
     val totalReadings: Int = 0,
     val scanPaused: Boolean = false,
+    val throttleDiag: String = "",
+    val map: MapModel = MapModel.EMPTY,
     val scansAccepted: Int = 0,
     val scansRefused: Int = 0,
 )

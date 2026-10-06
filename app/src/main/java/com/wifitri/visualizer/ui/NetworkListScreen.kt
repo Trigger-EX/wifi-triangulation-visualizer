@@ -78,14 +78,15 @@ fun NetworkListScreen(
         Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { modeTabs() }
         Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (state.scanPaused) "▶  Resume scanning" else "⏸  Pause scanning", color = if (state.scanPaused) Navy else Color.White,
+                if (state.scanPaused) (if (ble) "▶  Start Bluetooth scan" else "▶  Resume scanning") else "⏸  Pause scanning", color = if (state.scanPaused) Navy else Color.White,
                 fontWeight = FontWeight.Bold, fontSize = 13.sp,
                 modifier = Modifier.clip(RoundedCornerShape(50))
                     .background(if (state.scanPaused) NeonLime else Color.White.copy(0.12f))
                     .clickable(onClick = onTogglePause).padding(horizontal = 16.dp, vertical = 8.dp),
             )
             if (state.scanPaused) Text(
-                "Paused: the list is frozen and no samples are collected. Steps are still counted.",
+                if (ble) "Bluetooth scanning is off until you start it. Android’s Bluetooth LE scan isn’t purely passive: it can send tiny scan requests to nearby devices."
+                else "Paused: the list is frozen and no samples are collected. Steps are still counted.",
                 color = NeonOrange, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(start = 12.dp).weight(1f),
             )
         }

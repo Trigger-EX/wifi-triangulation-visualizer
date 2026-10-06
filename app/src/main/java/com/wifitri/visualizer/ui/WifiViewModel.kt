@@ -43,7 +43,7 @@ class WifiViewModel(app: Application) : BaseTrackerViewModel(app, RadioKind.WIFI
             val status = throttle.sync(settings.autoDisableThrottle)
             // Fast scanning is attempted whenever the user asked for it, even if the setting itself couldn't be read or changed.
             scanner.fastMode = settings.autoDisableThrottle
-            _state.update { it.copy(throttleStatus = status) }
+            _state.update { it.copy(throttleStatus = status, throttleDiag = throttle.diag) }
         }
     }
 

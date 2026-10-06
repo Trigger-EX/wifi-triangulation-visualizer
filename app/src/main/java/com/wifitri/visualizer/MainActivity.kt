@@ -26,7 +26,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.wifitri.visualizer.ui.AppMode
 import com.wifitri.visualizer.ui.BleViewModel
+import com.wifitri.visualizer.ui.MapScreen
 import com.wifitri.visualizer.ui.ModeTabs
 import com.wifitri.visualizer.ui.NetworkListScreen
 import com.wifitri.visualizer.ui.PermissionGate
@@ -43,7 +45,7 @@ class MainActivity : ComponentActivity() {
     private val bleVm: BleViewModel by viewModels()
     private var granted = false
     private var bleGranted = false
-    private var mode = RadioKind.WIFI
+    private var radio = RadioKind.WIFI
 
     private val needsBlePermission get() = Build.VERSION.SDK_INT >= 31
 
@@ -66,10 +68,13 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf(!needsBlePermission || checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED)
                 }
                 val bleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { bleOk = it }
-                var mode by rememberSaveable { mutableStateOf(RadioKind.WIFI) }
+                var appMode by rememberSaveable { mutableStateOf(AppMode.WIFI) }
+                var mapRadio by rememberSaveable { mutableStateOf(RadioKind.WIFI) }
+                // the radio that is actually scanning: WiFi/Bluetooth tabs pick it directly, the Map tab uses its own source switch
+                val mode = when (appMode) { AppMode.WIFI -> RadioKind.WIFI; AppMode.BLUETOOTH -> RadioKind.BLUETOOTH; AppMode.MAP -> mapRadio }
                 var showSettings by rememberSaveable { mutableStateOf(false) }
 
-                granted = ok; bleGranted = bleOk; this@MainActivity.mode = mode
+                granted = ok; bleGranted = bleOk; this@MainActivity.radio = mode
                 val vm = if (mode == RadioKind.WIFI) wifiVm else bleVm
                 val state by vm.state.collectAsStateWithLifecycle()
                 val wifiState by wifiVm.state.collectAsStateWithLifecycle()
@@ -80,7 +85,10 @@ class MainActivity : ComponentActivity() {
                     if (ok && (mode == RadioKind.WIFI || bleOk)) vm.start()
                 }
 
-                val tabs: @Composable () -> Unit = { ModeTabs(mode) { mode = it } }
+                val tabs: @Composable () -> Unit = { ModeTabs(appMode) { appMode = it } }
+                val sourceTabs: @Composable () -> Unit = {
+                    com.wifitri.visualizer.ui.SourceTabs(mapRadio) { mapRadio = it }
+                }
                 Box(Modifier.fillMaxSize().background(Navy)) {
                     when {
                         !ok -> PermissionGate { launcher.launch(perms) }
@@ -91,6 +99,15 @@ class MainActivity : ComponentActivity() {
                                 onAutoThrottle = wifiVm::setAutoDisableThrottle,
                                 onCompass = { wifiVm.setCompassEnabled(it); bleVm.setCompassEnabled(it) },
                                 onRecheck = wifiVm::refreshThrottleStatus,
+                            )
+                        }
+                        appMode == AppMode.MAP && (mode != RadioKind.BLUETOOTH || bleOk) -> {
+                            val sel = state.selected
+                            val best = state.networks.firstOrNull { state.sampleCounts[it.bssid] == state.sampleCounts.values.maxOrNull() }
+                            val target = sel ?: best
+                            MapScreen(
+                                state, heatId = target?.bssid, heatName = target?.ssid ?: "the strongest network", onRefresh = vm::refreshMap,
+                                modeTabs = tabs, sourceTabs = sourceTabs, onSettings = { showSettings = true },
                             )
                         }
                         mode == RadioKind.BLUETOOTH && !bleOk -> Column(Modifier.statusBarsPadding()) {
@@ -125,16 +142,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val active get() = if (mode == RadioKind.WIFI) wifiVm else bleVm
+    private val active get() = if (radio == RadioKind.WIFI) wifiVm else bleVm
 
     override fun onStart() {
         super.onStart()
-        if (granted && (mode == RadioKind.WIFI || bleGranted)) active.start()
+        if (granted && (radio == RadioKind.WIFI || bleGranted)) active.start()
     }
 
     override fun onResume() {
         super.onResume()
-        if (granted && mode == RadioKind.WIFI) wifiVm.refreshThrottleStatus()
+        if (granted && radio == RadioKind.WIFI) wifiVm.refreshThrottleStatus()
     }
 
     override fun onStop() {

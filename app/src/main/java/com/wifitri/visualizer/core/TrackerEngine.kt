@@ -33,6 +33,20 @@ class TrackerEngine(
 
     data class Result(val locked: Boolean, val plan: Plan, val trendDb: Double?)
 
+    private val path = ArrayList<PathPoint>().apply { add(PathPoint(0.0, 0.0)) }
+
+    /** Advances the dead-reckoned position by one step and extends the walked path (used by the map). */
+    fun onStep(headingRad: Double) {
+        pdr.onStep(headingRad)
+        path.add(PathPoint(pdr.x, pdr.y))
+        if (path.size > MAX_PATH) path.removeAt(0)
+    }
+
+    fun path(): List<PathPoint> = path.toList()
+
+    /** Every network's samples, for the map. */
+    fun allSeries(): Map<String, List<Sample>> = series.mapValues { it.value.samples.toList() }
+
     fun setHeightInches(inches: Int) { pdr.stepLengthM = Pdr.strideFromHeightInches(inches) }
 
     /** Records a reading for [id] at the current position. Returns true if [id] is the selected target. */
@@ -42,9 +56,9 @@ class TrackerEngine(
         s.lastMs = tMs
         val last = s.samples.lastOrNull()
         if (last != null && mergeRadiusM > 0 && hypot(pdr.x - last.x, pdr.y - last.y) < mergeRadiusM) {
-            s.samples[s.samples.size - 1] = last.copy(rssi = s.smoothed, tMs = tMs, headingRad = headingRad)
+            s.samples[s.samples.size - 1] = last.copy(rssi = s.smoothed, tMs = tMs, headingRad = headingRad, raw = rssi)
         } else {
-            s.samples.add(Sample(pdr.x, pdr.y, s.smoothed, headingRad, tMs))
+            s.samples.add(Sample(pdr.x, pdr.y, s.smoothed, headingRad, tMs, rssi))
             if (s.samples.size > MAX_SAMPLES) s.samples.removeAt(0)
         }
         if (series.size > MAX_SERIES) prune()
@@ -79,11 +93,12 @@ class TrackerEngine(
 
     /** Forgets every sample for every network and restarts the position origin here. Keeps the selection. */
     fun resetAll() {
-        series.clear(); pdr.reset(); locator = locatorFactory(); lock.reset()
+        series.clear(); pdr.reset(); path.clear(); path.add(PathPoint(0.0, 0.0)); locator = locatorFactory(); lock.reset()
     }
 
     private companion object {
         const val MAX_SAMPLES = 300
         const val MAX_SERIES = 400
+        const val MAX_PATH = 4000
     }
 }

@@ -48,7 +48,7 @@ abstract class BaseTrackerViewModel(app: Application, kind: RadioKind, mergeRadi
         viewModelScope.launch { headingProvider.heading.collect { h -> _state.update { refreshGuidance(it.copy(headingRad = h)) } } }
         viewModelScope.launch {
             stepProvider.steps.collect {
-                engine.pdr.onStep(headingProvider.heading.value)
+                engine.onStep(headingProvider.heading.value)
                 _state.update { refreshGuidance(it.copy(posX = engine.pdr.x, posY = engine.pdr.y, steps = it.steps + 1)) }
                 onStepTaken()
             }
@@ -141,6 +141,15 @@ abstract class BaseTrackerViewModel(app: Application, kind: RadioKind, mergeRadi
             }
             busy = false
             if (dirty) { dirty = false; recompute(engine.snapshot()) }
+        }
+    }
+
+    /** Rebuilds the experimental map from everything collected so far (cheap enough to call every couple of seconds). */
+    fun refreshMap(heatId: String?) {
+        val series = engine.allSeries(); val path = engine.path()
+        viewModelScope.launch {
+            val m = withContext(Dispatchers.Default) { com.wifitri.visualizer.core.MapBuilder.build(series, path, heatId) }
+            _state.update { it.copy(map = m) }
         }
     }
 

@@ -30,54 +30,73 @@ enum class ThrottleStatus {
     UNVERIFIED,
 }
 
+/** Pulls `THROTTLE=true|false` (true = throttling ON) out of the root helper's output. */
+fun parseHelperOutput(text: String): Boolean? = Regex("THROTTLE=(true|false)").find(text)?.groupValues?.get(1)?.toBooleanStrictOrNull()
+
 /**
  * Turns Developer options -> "Wi-Fi scan throttling" off while tracking, and restores it afterwards.
  *
- * Two ways to get write access, tried in this order:
- *  1. WRITE_SECURE_SETTINGS granted once over adb (see [adbCommand]) -> plain Settings.Global write.
- *  2. Root: `su -c settings put global ...`. With Magisk this pops up the Superuser prompt the first time.
- *
- * `su` blocks until the user answers the prompt, so everything here is suspend/off-main-thread.
+ * With root (Magisk) a tiny helper process (see [ThrottleCli]) calls the real system WiFi service, and the result is
+ * READ BACK before anything is reported as "disabled". Without root the app can only try a legacy Settings key, whose
+ * effect can't be confirmed, so the status stays "unverified" and the measured scan rate is the judge.
+ * `su` blocks until the user answers the Superuser prompt, so everything here is suspend/off-main-thread.
  */
 class ScanThrottleController(private val context: Context, private val settings: AppSettings) {
     private val cr get() = context.contentResolver
     private val lock = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** Last helper output / notes, shown in Settings so failures can be diagnosed. */
+    @Volatile var diag: String = ""; private set
+
     val adbCommand get() = "adb shell pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS"
 
     private fun hasPermission() =
         context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") == PackageManager.PERMISSION_GRANTED
 
-    private fun current(): Int? = try { Settings.Global.getInt(cr, KEY) } catch (_: Settings.SettingNotFoundException) { null }
+    /** Runs the helper as root; returns its stdout, or null if su is unavailable/denied/timed out. */
+    private fun helper(vararg args: String): String? = try {
+        val apk = context.applicationInfo.sourceDir
+        val cmd = "CLASSPATH='$apk' app_process /system/bin com.wifitri.visualizer.root.ThrottleCli ${args.joinToString(" ")}"
+        val p = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
+        if (p.waitFor(60, TimeUnit.SECONDS)) p.inputStream.bufferedReader().readText().trim() else { p.destroy(); null }
+    } catch (_: IOException) { null } // no su binary on this device
 
-    /** Writes the setting via adb-granted permission, else via root. Returns true on success. */
-    private fun write(value: Int): Boolean {
-        if (hasPermission()) {
-            try { return Settings.Global.putInt(cr, KEY, value) } catch (_: SecurityException) { /* fall through to root */ }
-        }
-        return su("settings put global $KEY $value") && current() == value
+    /** true = throttling ON, false = OFF, null = couldn't tell. Records diagnostics. */
+    private fun rootGet(): Boolean? {
+        val out = helper("get")
+        diag = out ?: "su unavailable or denied (no Superuser grant)"
+        return out?.let(::parseHelperOutput)
     }
 
-    /** Runs a command as root; with Magisk the first call shows the grant dialog. Waits up to 60 s for the answer. */
-    private fun su(cmd: String): Boolean = try {
-        val p = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
-        if (p.waitFor(60, TimeUnit.SECONDS)) p.exitValue() == 0 else { p.destroy(); false }
-    } catch (_: IOException) { false } // no su binary on this device
+    private fun rootSet(throttling: Boolean): Boolean? {
+        val out = helper("set", if (throttling) "1" else "0")
+        diag = out ?: "su unavailable or denied (no Superuser grant)"
+        return out?.let(::parseHelperOutput)
+    }
+
+    private fun legacyPut(v: Int): Boolean =
+        hasPermission() && try { Settings.Global.putInt(cr, LEGACY_KEY, v) } catch (_: SecurityException) { false }
 
     /** Applies or releases the override depending on [wanted]; returns the resulting status. */
     suspend fun sync(wanted: Boolean): ThrottleStatus = lock.withLock {
         withContext(Dispatchers.IO) {
-            if (!wanted) { restoreLocked(); return@withContext ThrottleStatus.NOT_REQUESTED }
-            // null = the key doesn't exist: either never touched (throttling defaults to ON) or kept elsewhere by this ROM
-            val now = current()
-            if (now == 0) {
-                return@withContext if (settings.savedThrottleValue >= 0) ThrottleStatus.DISABLED_BY_APP else ThrottleStatus.ALREADY_OFF
+            if (!wanted) { restoreLocked(); diag = ""; return@withContext ThrottleStatus.NOT_REQUESTED }
+            when (rootGet()) {
+                false -> return@withContext if (settings.savedThrottleValue >= 0) ThrottleStatus.DISABLED_BY_APP else ThrottleStatus.ALREADY_OFF
+                true -> {
+                    settings.savedThrottleValue = 1
+                    if (rootSet(false) == false) return@withContext ThrottleStatus.DISABLED_BY_APP
+                    settings.savedThrottleValue = -1
+                    diag = "Root helper ran but the change did not stick. " + diag
+                    return@withContext ThrottleStatus.UNVERIFIED
+                }
+                null -> {
+                    // no usable root: legacy key on old ROMs, effect unconfirmed
+                    if (legacyPut(0)) { settings.savedThrottleValue = 1; diag += " (legacy settings key written; effect unconfirmed)" }
+                    return@withContext if (hasPermission()) ThrottleStatus.UNVERIFIED else ThrottleStatus.NEEDS_PERMISSION
+                }
             }
-            settings.savedThrottleValue = now ?: 1
-            if (write(0)) return@withContext ThrottleStatus.DISABLED_BY_APP
-            settings.savedThrottleValue = -1
-            if (now == null) ThrottleStatus.UNVERIFIED else ThrottleStatus.NEEDS_PERMISSION
         }
     }
 
@@ -87,8 +106,10 @@ class ScanThrottleController(private val context: Context, private val settings:
     private fun restoreLocked() {
         val saved = settings.savedThrottleValue
         if (saved < 0) return
-        if (write(saved)) settings.savedThrottleValue = -1
+        val ok = rootSet(saved == 1) == (saved == 1)
+        if (!ok) legacyPut(saved)
+        settings.savedThrottleValue = -1
     }
 
-    private companion object { const val KEY = "wifi_scan_throttle_enabled" }
+    private companion object { const val LEGACY_KEY = "wifi_scan_throttle_enabled" }
 }

@@ -36,6 +36,16 @@ Pure logic lives in `core/` (no Android imports) with JVM unit tests in `app/src
 
 - **Pause scanning** (list screens): stops scan requests and freezes the list and sample collection; steps still count.
 
+## Map (experimental)
+A separate **Map β** tab sketches where you've been and where walls might be: the walked path, an interpolated signal heat map for the
+selected network, wall pieces and doorway candidates. Walls are inferred only where you *cross* them, from several networks' signals jumping at
+once by more than distance explains (about 8 dB or more; thin drywall is invisible), then joined when aligned; a doorway is where your path
+passed through an inferred wall line with no jump. It is a rough sketch, limited by walking drift and signal fading.
+
+## Root helper for scan throttling
+With Magisk, the app runs `ThrottleCli` as root (`app_process`) to call the system WiFi service's `setScanThrottleEnabled` and reads
+the state back before reporting "active". Without root, or if the helper fails, Settings shows the helper's output and the measured scan rate.
+
 ## No compass? Fallback heading
 Position tracking only needs *relative* headings, so a broken or disturbed compass isn't fatal. The app walks down a fallback chain
 (automatically when a sensor is missing, silent for 3 s, or reports UNRELIABLE; or forced via Settings → "Use compass"):

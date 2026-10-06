@@ -56,19 +56,25 @@ fun SettingsScreen(
         SettingCard(
             title = "⚡ Disable WiFi scan throttling",
             body = "Turns Developer options → “Wi-Fi scan throttling” off while the app is open (and restores it afterwards), " +
-                "so scans arrive every ~6 s instead of ~every 30 s. Rooted with Magisk? Just switch this on and approve the " +
-                "Superuser prompt. Otherwise grant a one-time permission over adb.",
+                "so scans arrive every ~6 s instead of ~every 30 s. Rooted with Magisk? Switch this on and approve the " +
+                "Superuser prompt; the app talks to the system WiFi service directly and reads the result back. Without root it can only " +
+                "try a legacy setting, so the measured scan rate below is what to trust.",
             checked = state.autoDisableThrottle, onChecked = onAutoThrottle,
         ) {
             val (msg, col) = when (state.throttleStatus) {
                 ThrottleStatus.NOT_REQUESTED -> "Off — Android's normal 4 scans / 2 min limit applies." to Color.White.copy(0.6f)
-                ThrottleStatus.DISABLED_BY_APP -> "✅ Active — throttling is off while you use the app." to NeonLime
+                ThrottleStatus.DISABLED_BY_APP -> "✅ Active — turned off through the system WiFi service (read back to confirm) while you use the app." to NeonLime
                 ThrottleStatus.ALREADY_OFF -> "✅ Throttling is already off in Developer options." to NeonLime
-                ThrottleStatus.UNVERIFIED -> "ℹ Can’t read this phone’s throttling setting (many phones keep it where apps can’t see it), so the app is measuring instead. " +
+                ThrottleStatus.UNVERIFIED -> "ℹ Couldn’t confirm a change to this phone’s throttling setting (many ROMs hide it from apps), so the app is measuring instead. " +
                     "It requests scans every ~6 s and backs off only if Android refuses them. If you already switched throttling off in Developer options, you’ll see fast scans below." to NeonCyan
                 ThrottleStatus.NEEDS_PERMISSION -> "⚠ No access yet: root (Magisk) wasn't available or was denied. Toggle off/on to be asked again, or use the adb command below." to NeonOrange
             }
             Text(msg, color = col, fontSize = 13.sp)
+            if (state.autoDisableThrottle && state.throttleDiag.isNotBlank() &&
+                state.throttleStatus != ThrottleStatus.DISABLED_BY_APP && state.throttleStatus != ThrottleStatus.ALREADY_OFF
+            ) {
+                Text("Details: ${state.throttleDiag.take(400)}", fontFamily = FontFamily.Monospace, color = Color.White.copy(0.6f), fontSize = 11.sp)
+            }
             if (state.autoDisableThrottle) {
                 val rate = if (state.scanIntervalMs < 10_000) "every ${state.scanIntervalMs / 1000} s (fast)" else "every ${state.scanIntervalMs / 1000} s (slow)"
                 Text(

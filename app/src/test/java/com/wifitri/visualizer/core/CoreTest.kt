@@ -6,6 +6,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.log10
+import kotlin.math.max
 import kotlin.math.sin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -198,5 +199,58 @@ class CoreTest {
         val wifi = ApLocator().estimate(s)
         val ble = ApLocator(2.2, -60.0, 3.5).estimate(s)
         assertTrue(ble.distanceM < wifi.distanceM)
+    }
+
+    // ---- map builder ----
+
+    private fun mapSim(wallLossDb: Double, seed: Long): Map<String, List<Sample>> {
+        val rnd = Random(seed)
+        val aps = listOf(-8.0 to 6.0, -3.0 to -9.0, 15.0 to 8.0, 14.0 to -6.0, 20.0 to 2.0, -12.0 to -3.0)
+        val out = HashMap<String, ArrayList<Sample>>()
+        var x = 0.0; var t = 0L
+        while (x <= 10.0) {
+            aps.forEachIndexed { i, ap ->
+                val crossed = (ap.first - 5.0) * (x - 5.0) < 0 // wall at x = 5
+                val r = -40.0 - 25.0 * log10(max(hypot(ap.first - x, ap.second), 1.0)) - (if (crossed) wallLossDb else 0.0) + rnd.nextGaussian() * 2
+                out.getOrPut("ap$i") { ArrayList() }.add(Sample(x, 0.0, r, 0.0, t, r))
+            }
+            x += 2.1; t += 6000
+        }
+        return out
+    }
+
+    @Test fun mapFindsAWallBetweenReadings() {
+        var found = 0
+        for (seed in 1L..5L) {
+            val ticks = MapBuilder.findTicks(mapSim(12.0, seed))
+            if (ticks.any { abs(it.x - 5.0) < 2.2 }) found++
+        }
+        assertTrue("wall found in $found/5 runs", found >= 4)
+    }
+
+    @Test fun mapDoesNotInventWallsInOpenSpace() {
+        var spurious = 0
+        for (seed in 1L..20L) spurious += MapBuilder.findTicks(mapSim(0.0, seed)).size
+        assertTrue("spurious ticks: $spurious in 20 runs", spurious <= 4)
+    }
+
+    @Test fun alignedTicksJoinAndPathGapBecomesDoorway() {
+        // two ticks on the same wall line x=5 (y=0 and y=4), 4 m apart, with a path crossing between them at y=2
+        val ticks = listOf(WallTick(5.0, 0.0, 1.0, 0.0, 10.0, 3), WallTick(5.0, 4.0, 1.0, 0.0, 9.0, 3))
+        val path = listOf(PathPoint(3.0, 2.0), PathPoint(7.0, 2.0))
+        val (walls, doors) = MapBuilder.linkTicks(ticks, path)
+        assertEquals(1, doors.size)
+        assertEquals(2.0, doors[0].y, 1e-6)
+        assertTrue(walls.size >= 2) // wall is split around the doorway
+        val (walls2, doors2) = MapBuilder.linkTicks(ticks, listOf(PathPoint(3.0, 8.0), PathPoint(7.0, 8.0)))
+        assertEquals(0, doors2.size)
+        assertEquals(1, walls2.size) // path never went through: one continuous wall
+    }
+
+    @Test fun heatMapOnlyCoversNearSamples() {
+        val h = MapBuilder.idwHeat(listOf(Sample(0.0, 0.0, -50.0, 0.0, 0L), Sample(2.0, 0.0, -60.0, 0.0, 1L)))
+        assertTrue(h.isNotEmpty())
+        assertTrue(h.all { it.rssi in -60.001..-49.999 }) // interpolates, never extrapolates
+        assertTrue(h.none { hypot(it.x - 1.0, it.y) > 6.0 })
     }
 }

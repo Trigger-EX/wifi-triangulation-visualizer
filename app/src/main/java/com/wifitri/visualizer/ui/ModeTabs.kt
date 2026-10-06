@@ -19,20 +19,38 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wifitri.visualizer.ui.theme.*
 
+enum class AppMode(val label: String) { WIFI("WiFi"), BLUETOOTH("Bluetooth"), MAP("Map β") }
+
 /** Segmented control that switches between the WiFi and Bluetooth radar screens. */
 @Composable
-fun ModeTabs(mode: RadioKind, onMode: (RadioKind) -> Unit) {
+fun ModeTabs(mode: AppMode, onMode: (AppMode) -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(NavyCard).padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioKind.values().forEach { k ->
+        AppMode.values().forEach { k ->
             val on = k == mode
             Text(
-                (if (k == RadioKind.WIFI) "WiFi" else "Bluetooth"), textAlign = TextAlign.Center, fontSize = 14.sp,
+                k.label, textAlign = TextAlign.Center, fontSize = 14.sp,
                 fontWeight = FontWeight.Bold, color = if (on) Navy else Color.White.copy(0.75f),
                 modifier = Modifier.weight(1f).clip(RoundedCornerShape(50)).background(if (on) NeonCyan else Color.Transparent)
                     .clickable { onMode(k) }.padding(vertical = 9.dp),
+            )
+        }
+    }
+}
+
+/** Small switch used on the Map screen to choose which radio's data feeds the map. */
+@Composable
+fun SourceTabs(source: RadioKind, onSource: (RadioKind) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("Data from:", color = Color.White.copy(0.6f), fontSize = 12.sp)
+        RadioKind.values().forEach { k ->
+            val on = k == source
+            Text(
+                k.label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (on) Navy else Color.White.copy(0.75f),
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) NeonCyan else NavyCard)
+                    .clickable { onSource(k) }.padding(horizontal = 14.dp, vertical = 6.dp),
             )
         }
     }
