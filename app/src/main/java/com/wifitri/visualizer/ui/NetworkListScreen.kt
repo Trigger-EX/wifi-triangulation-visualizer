@@ -64,6 +64,7 @@ fun NetworkListScreen(
     modeTabs: @Composable () -> Unit,
     onHideUnnamed: (Boolean) -> Unit = {},
     onResetAll: () -> Unit = {},
+    onTogglePause: () -> Unit = {},
 ) {
     val ble = state.kind == RadioKind.BLUETOOTH
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -75,6 +76,19 @@ fun NetworkListScreen(
             Text("⚙", fontSize = 28.sp, color = Color.White, modifier = Modifier.clickable(onClick = onSettings).padding(8.dp))
         }
         Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { modeTabs() }
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (state.scanPaused) "▶  Resume scanning" else "⏸  Pause scanning", color = if (state.scanPaused) Navy else Color.White,
+                fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                modifier = Modifier.clip(RoundedCornerShape(50))
+                    .background(if (state.scanPaused) NeonLime else Color.White.copy(0.12f))
+                    .clickable(onClick = onTogglePause).padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            if (state.scanPaused) Text(
+                "Paused: the list is frozen and no samples are collected. Steps are still counted.",
+                color = NeonOrange, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(start = 12.dp).weight(1f),
+            )
+        }
         if (ble) {
             val msg = when (state.bleStatus) {
                 BleStatus.OK -> null

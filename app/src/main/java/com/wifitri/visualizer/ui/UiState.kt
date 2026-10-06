@@ -49,4 +49,7 @@ data class UiState(
     /** Samples already collected per network/device (all of them, not just the selected one). */
     val sampleCounts: Map<String, Int> = emptyMap(),
     val totalReadings: Int = 0,
+    val scanPaused: Boolean = false,
+    val scansAccepted: Int = 0,
+    val scansRefused: Int = 0,
 )

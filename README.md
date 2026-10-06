@@ -34,6 +34,8 @@ Pure logic lives in `core/` (no Android imports) with JVM unit tests in `app/src
 - **Radar colours.** Samples run red (weakest on this walk) to green (strongest); the strongest reading gets a gold star and label.
 - **Height** is entered in feet and inches (stride ≈ 41.5% of height).
 
+- **Pause scanning** (list screens): stops scan requests and freezes the list and sample collection; steps still count.
+
 ## No compass? Fallback heading
 Position tracking only needs *relative* headings, so a broken or disturbed compass isn't fatal. The app walks down a fallback chain
 (automatically when a sensor is missing, silent for 3 s, or reports UNRELIABLE; or forced via Settings → "Use compass"):
@@ -45,7 +47,7 @@ Position tracking only needs *relative* headings, so a broken or disturbed compa
 The active source is shown on the tracking screen, and switching sources keeps the displayed heading continuous.
 
 ## Settings
-- **Disable WiFi scan throttling**: with root (Magisk) just enable the toggle and approve the Superuser prompt; the app runs
+- **Disable WiFi scan throttling** (measured, not assumed): many phones keep this setting where apps can't read it, so with the toggle on the app requests scans every ~6 s and backs off for ~2 minutes only if Android refuses them. Settings shows how many requests were accepted/refused. On top of that: with root (Magisk) just enable the toggle and approve the Superuser prompt; the app runs
   `settings put global wifi_scan_throttle_enabled 0` via `su`. Without root, Android only lets an app change Developer options → "Wi-Fi scan throttling" if it holds
   `WRITE_SECURE_SETTINGS`, which can't be requested at runtime. Grant it once:
   `adb shell pm grant com.wifitri.visualizer android.permission.WRITE_SECURE_SETTINGS`.

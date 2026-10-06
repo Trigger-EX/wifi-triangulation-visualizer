@@ -55,6 +55,14 @@ abstract class BaseTrackerViewModel(app: Application, kind: RadioKind, mergeRadi
         }
     }
 
+    /** Stops/starts the radio scan (the list freezes and no samples are recorded while paused; steps still count). */
+    protected abstract fun applyPaused(paused: Boolean)
+
+    fun setScanPaused(p: Boolean) {
+        _state.update { it.copy(scanPaused = p) }
+        applyPaused(p)
+    }
+
     abstract fun start()
     abstract fun stop()
     protected open fun onStepTaken() {}

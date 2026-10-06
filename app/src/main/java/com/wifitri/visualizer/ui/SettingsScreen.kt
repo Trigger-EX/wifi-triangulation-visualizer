@@ -64,12 +64,21 @@ fun SettingsScreen(
                 ThrottleStatus.NOT_REQUESTED -> "Off — Android's normal 4 scans / 2 min limit applies." to Color.White.copy(0.6f)
                 ThrottleStatus.DISABLED_BY_APP -> "✅ Active — throttling is off while you use the app." to NeonLime
                 ThrottleStatus.ALREADY_OFF -> "✅ Throttling is already off in Developer options." to NeonLime
-                ThrottleStatus.UNSUPPORTED -> "⚠ This Android version/device has no scan-throttling setting." to NeonOrange
+                ThrottleStatus.UNVERIFIED -> "ℹ Can’t read this phone’s throttling setting (many phones keep it where apps can’t see it), so the app is measuring instead. " +
+                    "It requests scans every ~6 s and backs off only if Android refuses them. If you already switched throttling off in Developer options, you’ll see fast scans below." to NeonCyan
                 ThrottleStatus.NEEDS_PERMISSION -> "⚠ No access yet: root (Magisk) wasn't available or was denied. Toggle off/on to be asked again, or use the adb command below." to NeonOrange
             }
             Text(msg, color = col, fontSize = 13.sp)
-            if (state.throttleStatus == ThrottleStatus.NEEDS_PERMISSION) {
-                Text("No root? Run this on a computer with the phone connected (USB debugging on):", color = Color.White.copy(0.75f), fontSize = 12.sp)
+            if (state.autoDisableThrottle) {
+                val rate = if (state.scanIntervalMs < 10_000) "every ${state.scanIntervalMs / 1000} s (fast)" else "every ${state.scanIntervalMs / 1000} s (slow)"
+                Text(
+                    "Measured: ${state.scansAccepted} scan requests accepted, ${state.scansRefused} refused · now scanning $rate" +
+                        if (state.throttled) " · Android refused a recent request, so the app is backing off for a couple of minutes." else "",
+                    color = if (state.scansRefused == 0 && state.scansAccepted > 0) NeonLime else Color.White.copy(0.75f), fontSize = 12.sp,
+                )
+            }
+            if (state.throttleStatus == ThrottleStatus.NEEDS_PERMISSION || state.throttleStatus == ThrottleStatus.UNVERIFIED) {
+                Text("Optional, to let the app change the setting itself. No root? Run this on a computer with the phone connected (USB debugging on):", color = Color.White.copy(0.75f), fontSize = 12.sp)
                 Text(
                     state.adbCommand, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = NeonCyan,
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(0.4f)).padding(10.dp),

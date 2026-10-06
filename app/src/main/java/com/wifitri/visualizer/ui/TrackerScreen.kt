@@ -76,6 +76,7 @@ class TrackerActions(
     val onHeightIn: (Int) -> Unit,
     val onRadarSize: (Float) -> Unit,
     val onRadarRange: (Float) -> Unit,
+    val onTogglePause: () -> Unit,
 )
 
 private fun deg(rad: Double) = Math.toDegrees(rad)
@@ -100,6 +101,11 @@ fun TrackerScreen(state: UiState, actions: TrackerActions) {
             Text("⚙", fontSize = 26.sp, color = Color.White, modifier = Modifier.clickable(onClick = actions.onSettings).padding(8.dp))
         }
 
+        if (state.scanPaused) Text(
+            "SCANNING PAUSED · no new samples are being collected. Tap to resume.", color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(NeonOrange)
+                .clickable(onClick = actions.onTogglePause).padding(10.dp),
+        )
         GuidanceCard(state, guide, heat, now)
 
         Compass(state, heat)

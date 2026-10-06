@@ -45,6 +45,7 @@ class BleScanner(context: Context) {
 
     private var running = false
     private var scanning = false
+    private var paused = false
 
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, r: ScanResult) = handle(r)
@@ -59,7 +60,7 @@ class BleScanner(context: Context) {
     private val publisher = object : Runnable {
         override fun run() {
             if (!running) return
-            publish()
+            if (!paused) publish()
             handler.postDelayed(this, 500)
         }
     }
@@ -85,6 +86,7 @@ class BleScanner(context: Context) {
     @SuppressLint("MissingPermission")
     private fun restartScan() {
         stopScan()
+        if (paused) return
         val a = adapter
         when {
             a == null -> _status.value = BleStatus.UNSUPPORTED
@@ -103,6 +105,13 @@ class BleScanner(context: Context) {
         if (!scanning) return
         try { adapter?.bluetoothLeScanner?.stopScan(callback) } catch (_: SecurityException) { }
         scanning = false
+    }
+
+    /** Pausing stops the radio scan and freezes the device list; resuming rescans. */
+    fun setPaused(p: Boolean) {
+        if (paused == p) return
+        paused = p
+        if (running) restartScan()
     }
 
     fun start() {

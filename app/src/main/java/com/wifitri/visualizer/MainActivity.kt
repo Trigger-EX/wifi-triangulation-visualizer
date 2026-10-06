@@ -103,6 +103,7 @@ class MainActivity : ComponentActivity() {
                             state, vm::select, onSettings = { showSettings = true }, modeTabs = tabs,
                             onHideUnnamed = bleVm::setHideUnnamed,
                             onResetAll = vm::resetAllSamples,
+                            onTogglePause = { vm.setScanPaused(!state.scanPaused) },
                         )
                         else -> {
                             BackHandler { vm.select(null) }
@@ -114,6 +115,7 @@ class MainActivity : ComponentActivity() {
                                     onHeightIn = { wifiVm.setHeightInches(it); bleVm.setHeightInches(it) },
                                     onRadarSize = { wifiVm.setRadarSize(it); bleVm.setRadarSize(it) },
                                     onRadarRange = { wifiVm.setRadarRange(it); bleVm.setRadarRange(it) },
+                                    onTogglePause = { vm.setScanPaused(!state.scanPaused) },
                                 ),
                             )
                         }

@@ -20,6 +20,10 @@ class WifiViewModel(app: Application) : BaseTrackerViewModel(app, RadioKind.WIFI
         _state.update { it.copy(adbCommand = throttle.adbCommand) }
         viewModelScope.launch { scanner.results.collect { onScan(it) } }
         viewModelScope.launch { scanner.throttled.collect { t -> _state.update { it.copy(throttled = t) } } }
+        viewModelScope.launch {
+            scanner.stats.collect { st -> _state.update { it.copy(scansAccepted = st.accepted, scansRefused = st.refused, scanIntervalMs = st.currentIntervalMs) } }
+        }
+        scanner.fastMode = settings.autoDisableThrottle
         viewModelScope.launch { scanner.lastResultAtMs.collect { t -> _state.update { it.copy(lastReadingMs = t) } } }
     }
 
@@ -37,10 +41,9 @@ class WifiViewModel(app: Application) : BaseTrackerViewModel(app, RadioKind.WIFI
         // May block on the Magisk Superuser prompt, so run it off the main thread.
         viewModelScope.launch {
             val status = throttle.sync(settings.autoDisableThrottle)
-            val fast = status == ThrottleStatus.DISABLED_BY_APP || status == ThrottleStatus.ALREADY_OFF
-            scanner.intervalMs = if (fast) FAST_INTERVAL_MS else WifiScanner.SCAN_INTERVAL_MS
-            if (fast) scanner.clearThrottleWarning()
-            _state.update { it.copy(throttleStatus = status, scanIntervalMs = scanner.intervalMs) }
+            // Fast scanning is attempted whenever the user asked for it, even if the setting itself couldn't be read or changed.
+            scanner.fastMode = settings.autoDisableThrottle
+            _state.update { it.copy(throttleStatus = status) }
         }
     }
 
@@ -80,5 +83,5 @@ class WifiViewModel(app: Application) : BaseTrackerViewModel(app, RadioKind.WIFI
         scanner.requestScan()
     }
 
-    private companion object { const val FAST_INTERVAL_MS = 6_000L }
+    override fun applyPaused(paused: Boolean) = scanner.setPaused(paused)
 }

@@ -23,8 +23,11 @@ enum class ThrottleStatus {
     ALREADY_OFF,
     /** Requested, but neither WRITE_SECURE_SETTINGS (adb) nor root (Magisk) access is available. */
     NEEDS_PERMISSION,
-    /** The device/OS exposes no such setting (Android < 10 or vendor build). */
-    UNSUPPORTED,
+    /**
+     * The setting can't be read or changed here (many phones keep it somewhere apps can't see). The app then measures
+     * instead: it requests scans fast and backs off only if Android refuses them.
+     */
+    UNVERIFIED,
 }
 
 /**
@@ -66,13 +69,15 @@ class ScanThrottleController(private val context: Context, private val settings:
     suspend fun sync(wanted: Boolean): ThrottleStatus = lock.withLock {
         withContext(Dispatchers.IO) {
             if (!wanted) { restoreLocked(); return@withContext ThrottleStatus.NOT_REQUESTED }
-            val now = current() ?: return@withContext ThrottleStatus.UNSUPPORTED
+            // null = the key doesn't exist: either never touched (throttling defaults to ON) or kept elsewhere by this ROM
+            val now = current()
             if (now == 0) {
                 return@withContext if (settings.savedThrottleValue >= 0) ThrottleStatus.DISABLED_BY_APP else ThrottleStatus.ALREADY_OFF
             }
-            settings.savedThrottleValue = now
-            if (write(0)) ThrottleStatus.DISABLED_BY_APP
-            else { settings.savedThrottleValue = -1; ThrottleStatus.NEEDS_PERMISSION }
+            settings.savedThrottleValue = now ?: 1
+            if (write(0)) return@withContext ThrottleStatus.DISABLED_BY_APP
+            settings.savedThrottleValue = -1
+            if (now == null) ThrottleStatus.UNVERIFIED else ThrottleStatus.NEEDS_PERMISSION
         }
     }
 

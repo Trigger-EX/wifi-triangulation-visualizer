@@ -48,6 +48,8 @@ class BleViewModel(app: Application) : BaseTrackerViewModel(
 
     fun setHideUnnamed(on: Boolean) { _state.update { it.copy(hideUnnamed = on) }; publishDevices() }
 
+    override fun applyPaused(paused: Boolean) = scanner.setPaused(paused)
+
     override fun start() { scanner.start(); headingProvider.start(); stepProvider.start() }
     override fun stop() { scanner.stop(); headingProvider.stop(); stepProvider.stop() }
 
