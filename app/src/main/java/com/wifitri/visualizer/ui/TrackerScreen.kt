@@ -51,6 +51,7 @@ import com.wifitri.visualizer.core.Hint
 import com.wifitri.visualizer.core.Method
 import com.wifitri.visualizer.core.rssiToColor01
 import com.wifitri.visualizer.core.wrapAngle
+import com.wifitri.visualizer.sensors.HeadingSource
 import com.wifitri.visualizer.ui.theme.*
 import kotlin.math.PI
 import kotlin.math.cos
@@ -64,6 +65,7 @@ fun TrackerScreen(
     onBack: () -> Unit,
     onReset: () -> Unit,
     onStepLength: (Double) -> Unit,
+    onSettings: () -> Unit,
 ) {
     val sel = state.selected ?: return
     val heat = heatColor(rssiToColor01(state.smoothedRssi).toFloat())
@@ -73,11 +75,13 @@ fun TrackerScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("←", fontSize = 28.sp, color = NeonCyan, modifier = Modifier.clickable(onClick = onBack).padding(end = 12.dp))
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(sel.ssid, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
                 Text("${state.smoothedRssi.toInt()} dBm · ${sel.band}", color = heat, fontWeight = FontWeight.Bold)
             }
+            Text("⚙", fontSize = 26.sp, color = Color.White, modifier = Modifier.clickable(onClick = onSettings).padding(8.dp))
         }
+        HeadingChip(state)
         HotColdBanner(state)
 
         Box(Modifier.fillMaxWidth().aspectRatio(1f), contentAlignment = Alignment.Center) {
@@ -112,6 +116,17 @@ fun TrackerScreen(
         }
         if (state.throttled) ThrottleBanner()
     }
+}
+
+@Composable
+private fun HeadingChip(state: UiState) {
+    val src = state.headingSource
+    val col = if (src == HeadingSource.COMPASS) NeonLime else if (src == HeadingSource.NONE) NeonOrange else NeonCyan
+    Text(
+        "🧭 ${src.label}" + if (src == HeadingSource.COMPASS) "" else " — ${src.detail}",
+        color = col, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(col.copy(0.15f)).padding(horizontal = 12.dp, vertical = 6.dp),
+    )
 }
 
 @Composable

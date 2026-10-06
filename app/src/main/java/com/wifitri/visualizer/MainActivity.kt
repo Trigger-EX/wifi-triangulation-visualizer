@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wifitri.visualizer.ui.MainViewModel
 import com.wifitri.visualizer.ui.NetworkListScreen
 import com.wifitri.visualizer.ui.PermissionGate
+import com.wifitri.visualizer.ui.SettingsScreen
 import com.wifitri.visualizer.ui.TrackerScreen
 import com.wifitri.visualizer.ui.theme.AppTheme
 import com.wifitri.visualizer.ui.theme.Navy
@@ -48,13 +49,25 @@ class MainActivity : ComponentActivity() {
                 granted = ok
                 androidx.compose.runtime.LaunchedEffect(ok) { if (ok) vm.start() }
                 val state by vm.state.collectAsStateWithLifecycle()
+                var showSettings by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
                 Box(Modifier.fillMaxSize().background(Navy)) {
                     when {
                         !ok -> PermissionGate { launcher.launch(perms) }
-                        state.selected == null -> NetworkListScreen(state, vm::select)
+                        showSettings -> {
+                            BackHandler { showSettings = false }
+                            SettingsScreen(
+                                state, onBack = { showSettings = false },
+                                onAutoThrottle = vm::setAutoDisableThrottle, onCompass = vm::setCompassEnabled,
+                                onRecheck = vm::refreshThrottleStatus,
+                            )
+                        }
+                        state.selected == null -> NetworkListScreen(state, vm::select, onSettings = { showSettings = true })
                         else -> {
                             BackHandler { vm.select(null) }
-                            TrackerScreen(state, onBack = { vm.select(null) }, onReset = vm::resetTrail, onStepLength = vm::setStepLength)
+                            TrackerScreen(
+                                state, onBack = { vm.select(null) }, onReset = vm::resetTrail,
+                                onStepLength = vm::setStepLength, onSettings = { showSettings = true },
+                            )
                         }
                     }
                 }
@@ -63,5 +76,6 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStart() { super.onStart(); if (granted) vm.start() }
+    override fun onResume() { super.onResume(); if (granted) vm.refreshThrottleStatus() }
     override fun onStop() { super.onStop(); vm.stop() }
 }

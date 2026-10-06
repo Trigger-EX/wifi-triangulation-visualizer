@@ -64,4 +64,18 @@ class CoreTest {
         }
         assertTrue("steps=$n", n in 8..12)
     }
+
+    @Test fun gyroHeadingTracksClockwiseTurn() {
+        val g = GyroHeading(); g.onAccel(0.0, 0.0, 9.81) // phone flat, up = +z
+        var h = 0.0
+        for (i in 0..100) h = g.onGyro(0.0, 0.0, -PI / 2, i * 10_000_000L) // clockwise from above, 90 deg/s for 1 s
+        assertEquals(PI / 2, h, 0.02)
+    }
+
+    @Test fun gyroHeadingIgnoresTiltAxes() {
+        val g = GyroHeading(); g.onAccel(0.0, 0.0, 9.81)
+        var h = 0.0
+        for (i in 0..100) h = g.onGyro(1.0, 1.0, 0.0, i * 10_000_000L)
+        assertEquals(0.0, h, 1e-9)
+    }
 }

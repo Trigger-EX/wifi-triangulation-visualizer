@@ -11,9 +11,13 @@ import com.wifitri.visualizer.core.RssiFilter
 import com.wifitri.visualizer.core.Sample
 import com.wifitri.visualizer.core.hint
 import com.wifitri.visualizer.core.relativeBearing
+import com.wifitri.visualizer.data.AppSettings
 import com.wifitri.visualizer.sensors.HeadingProvider
+import com.wifitri.visualizer.sensors.HeadingSource
 import com.wifitri.visualizer.sensors.StepProvider
 import com.wifitri.visualizer.wifi.ScanResultUi
+import com.wifitri.visualizer.wifi.ScanThrottleController
+import com.wifitri.visualizer.wifi.ThrottleStatus
 import com.wifitri.visualizer.wifi.WifiScanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,9 +40,16 @@ data class UiState(
     val throttled: Boolean = false,
     val stepLengthM: Double = 0.7,
     val steps: Int = 0,
+    val headingSource: HeadingSource = HeadingSource.NONE,
+    val autoDisableThrottle: Boolean = false,
+    val compassEnabled: Boolean = true,
+    val throttleStatus: ThrottleStatus = ThrottleStatus.NOT_REQUESTED,
+    val adbCommand: String = "",
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
+    private val settings = AppSettings(app)
+    private val throttle = ScanThrottleController(app, settings)
     private val scanner = WifiScanner(app)
     private val headingProvider = HeadingProvider(app)
     private val stepProvider = StepProvider(app)
@@ -48,10 +59,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val samples = ArrayList<Sample>()
     private var lastTimestampUs = -1L
 
-    private val _state = MutableStateFlow(UiState())
+    private val _state = MutableStateFlow(
+        UiState(autoDisableThrottle = settings.autoDisableThrottle, compassEnabled = settings.compassEnabled, adbCommand = throttle.adbCommand),
+    )
     val state: StateFlow<UiState> = _state
 
     init {
+        headingProvider.compassAllowed = settings.compassEnabled
+        viewModelScope.launch { headingProvider.source.collect { src -> _state.update { it.copy(headingSource = src) } } }
         viewModelScope.launch { scanner.results.collect { onScan(it) } }
         viewModelScope.launch { scanner.throttled.collect { t -> _state.update { it.copy(throttled = t) } } }
         viewModelScope.launch { headingProvider.heading.collect { h -> _state.update { refreshGuidance(it.copy(headingRad = h)) } } }
@@ -63,8 +78,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun start() { scanner.start(); headingProvider.start(); stepProvider.start() }
-    fun stop() { scanner.stop(); headingProvider.stop(); stepProvider.stop() }
+    fun start() {
+        applyThrottleSetting()
+        scanner.start(); headingProvider.start(); stepProvider.start()
+    }
+
+    fun stop() {
+        scanner.stop(); headingProvider.stop(); stepProvider.stop()
+        throttle.restore() // leave the user's Developer options exactly as we found them
+    }
+
+    private fun applyThrottleSetting() {
+        val status = throttle.sync(settings.autoDisableThrottle)
+        val fast = status == ThrottleStatus.DISABLED_BY_APP || status == ThrottleStatus.ALREADY_OFF
+        scanner.intervalMs = if (fast) FAST_INTERVAL_MS else WifiScanner.SCAN_INTERVAL_MS
+        if (fast) scanner.clearThrottleWarning()
+        _state.update { it.copy(throttleStatus = status) }
+    }
+
+    fun setAutoDisableThrottle(on: Boolean) {
+        settings.autoDisableThrottle = on
+        _state.update { it.copy(autoDisableThrottle = on) }
+        applyThrottleSetting()
+    }
+
+    fun setCompassEnabled(on: Boolean) {
+        settings.compassEnabled = on
+        headingProvider.compassAllowed = on
+        headingProvider.restart()
+        _state.update { it.copy(compassEnabled = on) }
+    }
+
+    /** Re-checks permission state, e.g. after the user ran the adb command and came back. */
+    fun refreshThrottleStatus() = applyThrottleSetting()
 
     fun select(n: ScanResultUi?) {
         resetTrail()
@@ -104,4 +150,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() { stop() }
+
+    private companion object { const val FAST_INTERVAL_MS = 6_000L }
 }

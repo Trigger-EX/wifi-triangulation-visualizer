@@ -46,12 +46,12 @@ fun heatColor(t: Float): Color {
 }
 
 @Composable
-fun NetworkListScreen(state: UiState, onSelect: (ScanResultUi) -> Unit) {
+fun NetworkListScreen(state: UiState, onSelect: (ScanResultUi) -> Unit, onSettings: () -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Text(
-            "📡 Pick a network to hunt", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = NeonCyan,
-            modifier = Modifier.padding(20.dp, 20.dp, 20.dp, 8.dp),
-        )
+        Row(Modifier.padding(20.dp, 20.dp, 20.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("📡 Pick a network to hunt", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = NeonCyan, modifier = Modifier.weight(1f))
+            Text("⚙", fontSize = 28.sp, color = Color.White, modifier = Modifier.clickable(onClick = onSettings).padding(8.dp))
+        }
         if (state.throttled) ThrottleBanner()
         if (state.networks.isEmpty()) {
             Text("Scanning… (make sure WiFi and Location are on)", color = Color.White.copy(0.7f), modifier = Modifier.padding(20.dp))

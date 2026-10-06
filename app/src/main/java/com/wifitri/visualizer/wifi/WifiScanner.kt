@@ -36,6 +36,9 @@ class WifiScanner(context: Context) {
     val throttled: StateFlow<Boolean> = _throttled
     private var running = false
 
+    /** Time between automatic scan requests; shortened when throttling is off. */
+    @Volatile var intervalMs = SCAN_INTERVAL_MS
+
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             if (!i.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, true)) _throttled.value = true
@@ -47,7 +50,7 @@ class WifiScanner(context: Context) {
         override fun run() {
             if (!running) return
             requestScan()
-            handler.postDelayed(this, SCAN_INTERVAL_MS)
+            handler.postDelayed(this, intervalMs)
         }
     }
 
@@ -74,6 +77,9 @@ class WifiScanner(context: Context) {
         publish() // show cached results immediately
         handler.post(ticker)
     }
+
+    /** Called once throttling has been turned off, so the "throttled" warning clears. */
+    fun clearThrottleWarning() { _throttled.value = false }
 
     fun stop() {
         if (!running) return
