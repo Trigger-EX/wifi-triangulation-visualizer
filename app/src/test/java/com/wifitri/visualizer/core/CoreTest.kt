@@ -1,0 +1,67 @@
+package com.wifitri.visualizer.core
+
+import java.util.Random
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.log10
+import kotlin.math.sin
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class CoreTest {
+    private fun model(x: Double, y: Double, ax: Double, ay: Double) =
+        -40.0 - 25.0 * log10(maxOf(hypot(ax - x, ay - y), 0.5))
+
+    @Test fun locatorFindsApAfterLWalk() {
+        val rnd = Random(5)
+        val pts = ArrayList<Pair<Double, Double>>()
+        for (i in 0..14) pts.add(0.0 to i * 0.7 * 1.0)
+        for (i in 1..14) pts.add(i * 0.7 to 14 * 0.7)
+        val s = pts.mapIndexed { i, p ->
+            Sample(p.first, p.second, model(p.first, p.second, 10.0, 5.0) + rnd.nextGaussian() * 2, 0.0, i * 4000L)
+        }
+        val e = ApLocator().estimate(s)
+        val cur = s.last()
+        val truth = Math.atan2(10.0 - cur.x, 5.0 - cur.y)
+        assertTrue("bearing ${e.bearingWorldRad} vs $truth", abs(wrapAngle(e.bearingWorldRad - truth)) < Math.toRadians(25.0))
+        assertTrue(e.confidence > 0.0)
+    }
+
+    @Test fun tooFewSamplesGivesNone() {
+        val s = List(5) { Sample(it.toDouble() * 2, 0.0, -60.0, 0.0, it * 1000L) }
+        assertEquals(Method.NONE, ApLocator().estimate(s).method)
+    }
+
+    @Test fun gradientPointsAlongLine() {
+        val s = List(12) { Sample(0.0, it * 1.0, model(0.0, it * 1.0, 0.0, 30.0), 0.0, it * 1000L) }
+        val e = ApLocator().estimate(s)
+        assertTrue(abs(wrapAngle(e.bearingWorldRad)) < Math.toRadians(15.0))
+    }
+
+    @Test fun filterConverges() {
+        val f = RssiFilter(); var v = 0.0
+        repeat(50) { v = f.update(-60.0) }
+        assertEquals(-60.0, v, 1e-6)
+    }
+
+    @Test fun pdrEast() {
+        val p = Pdr(0.7); repeat(4) { p.onStep(PI / 2) }
+        assertEquals(2.8, p.x, 1e-9); assertEquals(0.0, p.y, 1e-9)
+    }
+
+    @Test fun relativeBearingWraps() {
+        assertEquals(Math.toRadians(-20.0), relativeBearing(Math.toRadians(350.0), Math.toRadians(10.0)), 1e-9)
+    }
+
+    @Test fun stepDetectorCountsSteps() {
+        val d = StepDetectorLogic(); var n = 0
+        for (i in 0 until 500) { // 100 Hz, 5 s, 2 Hz bounce
+            val t = i * 10L
+            if (d.onAccel(0.0, 0.0, 9.81 + 3 * sin(2 * PI * 2 * t / 1000.0), t)) n++
+        }
+        assertTrue("steps=$n", n in 8..12)
+    }
+}
