@@ -10,7 +10,7 @@ import com.wifitri.visualizer.wifi.WifiScanner
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class WifiViewModel(app: Application) : BaseTrackerViewModel(app, RadioKind.WIFI, mergeRadiusM = 0.0, { ApLocator() }) {
+class WifiViewModel(app: Application) : BaseTrackerViewModel(app, RadioKind.WIFI, prefix = "w:", mergeRadiusM = 0.0, locatorFactory = { ApLocator() }) {
     private val throttle = ScanThrottleController(app, settings)
     private val scanner = WifiScanner(app)
     private val lastTimestampUs = HashMap<String, Long>()
@@ -29,11 +29,13 @@ class WifiViewModel(app: Application) : BaseTrackerViewModel(app, RadioKind.WIFI
 
     override fun start() {
         applyThrottleSetting()
-        scanner.start(); headingProvider.start(); stepProvider.start()
+        super.start()
+        scanner.start()
     }
 
     override fun stop() {
-        scanner.stop(); headingProvider.stop(); stepProvider.stop()
+        scanner.stop()
+        super.stop()
         throttle.restoreAsync() // leave the user's Developer options exactly as we found them
     }
 

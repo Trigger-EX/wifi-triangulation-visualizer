@@ -52,8 +52,8 @@ fun MapScreen(
     heatName: String,
     onRefresh: (String?) -> Unit,
     modeTabs: @Composable () -> Unit,
-    sourceTabs: @Composable () -> Unit,
     onSettings: () -> Unit,
+    bleNote: String?,
 ) {
     // rebuild every couple of seconds while this screen is open
     LaunchedEffect(heatId) { while (true) { onRefresh(heatId); delay(2000) } }
@@ -72,7 +72,12 @@ fun MapScreen(
             Text("⚙", fontSize = 28.sp, color = Color.White, modifier = Modifier.clickable(onClick = onSettings).padding(8.dp))
         }
         modeTabs()
-        sourceTabs()
+        Text(
+            "Using BOTH radios together: WiFi networks and Bluetooth devices all feed one map. Each radio is switched on while you are here " +
+                "and returns to its previous on/off state when you leave.",
+            color = Color.White.copy(0.7f), fontSize = 12.sp, lineHeight = 17.sp,
+        )
+        if (bleNote != null) Text(bleNote, color = NeonOrange, fontSize = 12.sp, lineHeight = 17.sp)
 
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(NeonOrange.copy(0.18f)).padding(12.dp),
@@ -104,7 +109,7 @@ fun MapScreen(
             Text("MAP DATA", color = Color.White.copy(0.55f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
             Text(
                 "${m.path.size} path points · ${state.totalReadings} signal samples from ${m.networksUsed} usable " +
-                    "${if (state.kind == RadioKind.WIFI) "networks" else "devices"} · ${m.ticks.size} crossings flagged · ${m.walls.size} wall pieces · ${m.doorways.size} doorway candidates",
+                    "networks and devices · ${m.ticks.size} crossings flagged · ${m.walls.size} wall pieces · ${m.doorways.size} doorway candidates",
                 color = Color.White.copy(0.8f), fontSize = 12.sp, lineHeight = 17.sp,
             )
             ToggleRow("Signal heat map", showHeat) { showHeat = it }
@@ -120,7 +125,7 @@ fun MapScreen(
             Text("HOW TO GET A BETTER SKETCH", color = Color.White.copy(0.55f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
             Text(
                 "• Walk steadily through each room, doorway and corridor, and cross each wall you care about more than once, at different places.\\n" +
-                    "• More networks help a lot: wall detection needs at least two networks to jump together. In a quiet area use Bluetooth (turn on its scan from the Bluetooth tab first), which gives far more readings.\\n" +
+                    "• More signals help a lot: wall detection needs at least two networks or devices to jump together, and Bluetooth devices (beacons, speakers, earbuds, trackers) add many readings per second.\\n" +
                     "• In ⚙ Settings, turn on “Disable WiFi scan throttling” so WiFi readings arrive every ~6 s instead of ~30 s; with slow scans you only get a reading every 20+ metres of walking.\\n" +
                     "• Hold the phone flat and pointing the way you walk; set your height on the Tracking screen so distances are right.\\n" +
                     "• Use Reset samples (on the network list) before mapping a new area.",

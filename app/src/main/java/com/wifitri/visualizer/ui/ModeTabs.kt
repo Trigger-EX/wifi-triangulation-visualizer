@@ -39,19 +39,3 @@ fun ModeTabs(mode: AppMode, onMode: (AppMode) -> Unit) {
         }
     }
 }
-
-/** Small switch used on the Map screen to choose which radio's data feeds the map. */
-@Composable
-fun SourceTabs(source: RadioKind, onSource: (RadioKind) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Data from:", color = Color.White.copy(0.6f), fontSize = 12.sp)
-        RadioKind.values().forEach { k ->
-            val on = k == source
-            Text(
-                k.label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (on) Navy else Color.White.copy(0.75f),
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(if (on) NeonCyan else NavyCard)
-                    .clickable { onSource(k) }.padding(horizontal = 14.dp, vertical = 6.dp),
-            )
-        }
-    }
-}

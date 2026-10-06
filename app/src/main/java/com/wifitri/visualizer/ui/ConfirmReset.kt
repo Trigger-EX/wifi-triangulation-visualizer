@@ -28,8 +28,7 @@ fun ConfirmReset(state: UiState, onConfirm: () -> Unit, trigger: @Composable (op
             title = { Text("Reset all samples?") },
             text = {
                 Text(
-                    "This deletes the ${state.totalReadings} signal samples collected from ${state.sampleCounts.size} " +
-                        "${if (state.kind == RadioKind.WIFI) "networks" else "devices"} and the path you have walked. " +
+                    "This deletes all ${state.totalReadings} signal samples collected so far (every WiFi network and Bluetooth device) and the path you have walked. " +
                         "Your position origin restarts wherever you are standing now, and every network will need new samples. " +
                         "This can’t be undone.",
                 )

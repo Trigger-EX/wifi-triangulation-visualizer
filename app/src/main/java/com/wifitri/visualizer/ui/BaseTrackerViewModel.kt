@@ -3,13 +3,14 @@ package com.wifitri.visualizer.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.wifitri.visualizer.WifiCompassApp
 import com.wifitri.visualizer.core.ApEstimate
+import com.wifitri.visualizer.core.ApLocator
+import com.wifitri.visualizer.core.MapBuilder
 import com.wifitri.visualizer.core.Phase
-import com.wifitri.visualizer.core.TrackerEngine
+import com.wifitri.visualizer.core.Sample
 import com.wifitri.visualizer.core.relativeBearing
 import com.wifitri.visualizer.data.AppSettings
-import com.wifitri.visualizer.sensors.HeadingProvider
-import com.wifitri.visualizer.sensors.StepProvider
 import com.wifitri.visualizer.wifi.ScanResultUi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,15 +22,21 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /**
- * Everything the WiFi and Bluetooth trackers share: heading + step sensors, the [TrackerEngine],
- * UI state and the display settings. Subclasses feed it radio readings via [ingest].
+ * What the WiFi and Bluetooth screens share: UI state on top of the app-wide [com.wifitri.visualizer.tracking.TrackingHub]
+ * (sensors, position, samples). Subclasses own one radio and feed its readings in via [ingest].
+ * Series ids are prefixed per radio ([prefix]) so both radios can live in one sample store.
  */
-abstract class BaseTrackerViewModel(app: Application, kind: RadioKind, mergeRadiusM: Double, locatorFactory: () -> com.wifitri.visualizer.core.ApLocator) :
-    AndroidViewModel(app) {
-    protected val settings = AppSettings(app)
-    protected val headingProvider = HeadingProvider(app)
-    protected val stepProvider = StepProvider(app)
-    protected val engine = TrackerEngine(locatorFactory, settings.heightIn, mergeRadiusM)
+abstract class BaseTrackerViewModel(
+    app: Application,
+    kind: RadioKind,
+    private val prefix: String,
+    private val mergeRadiusM: Double,
+    private val locatorFactory: () -> ApLocator,
+) : AndroidViewModel(app) {
+    protected val hub = (app as WifiCompassApp).hub
+    protected val settings: AppSettings = hub.settings
+    protected val engine = hub.engine
+    private var acquired = false
 
     protected val _state = MutableStateFlow(
         UiState(
@@ -43,14 +50,24 @@ abstract class BaseTrackerViewModel(app: Application, kind: RadioKind, mergeRadi
     private var dirty = false
 
     init {
-        headingProvider.compassAllowed = settings.compassEnabled
-        viewModelScope.launch { headingProvider.source.collect { src -> _state.update { it.copy(headingSource = src) } } }
-        viewModelScope.launch { headingProvider.heading.collect { h -> _state.update { refreshGuidance(it.copy(headingRad = h)) } } }
+        viewModelScope.launch { hub.heading.source.collect { src -> _state.update { it.copy(headingSource = src) } } }
+        viewModelScope.launch { hub.heading.heading.collect { h -> _state.update { refreshGuidance(it.copy(headingRad = h)) } } }
         viewModelScope.launch {
-            stepProvider.steps.collect {
-                engine.onStep(headingProvider.heading.value)
-                _state.update { refreshGuidance(it.copy(posX = engine.pdr.x, posY = engine.pdr.y, steps = it.steps + 1)) }
-                onStepTaken()
+            hub.position.collect { p ->
+                val stepped = p.steps != _state.value.steps
+                _state.update { refreshGuidance(it.copy(posX = p.x, posY = p.y, steps = p.steps)) }
+                if (stepped) onStepTaken()
+            }
+        }
+        viewModelScope.launch {
+            hub.resets.collect {
+                _state.update {
+                    it.copy(
+                        samples = emptyList(), estimate = ApEstimate.NONE, phase = Phase.FIRST_READING, locked = false, waypoint = null,
+                        trendDb = null, sampleCounts = emptyMap(), totalReadings = 0, map = com.wifitri.visualizer.core.MapModel.EMPTY,
+                        smoothedRssi = it.selected?.rssi?.toDouble() ?: -100.0,
+                    )
+                }
             }
         }
     }
@@ -63,8 +80,9 @@ abstract class BaseTrackerViewModel(app: Application, kind: RadioKind, mergeRadi
         applyPaused(p)
     }
 
-    abstract fun start()
-    abstract fun stop()
+    /** Starts the shared sensors (reference-counted) then the radio. */
+    open fun start() { if (!acquired) { acquired = true; hub.acquire() } }
+    open fun stop() { if (acquired) { acquired = false; hub.release() } }
     protected open fun onStepTaken() {}
 
     /**
@@ -72,7 +90,7 @@ abstract class BaseTrackerViewModel(app: Application, kind: RadioKind, mergeRadi
      * network you already walked around is estimated straight away.
      */
     open fun select(n: ScanResultUi?) {
-        engine.select(n?.bssid)
+        engine.select(n?.let { prefix + it.bssid }, locatorFactory)
         val snap = engine.snapshot()
         _state.update {
             it.copy(
@@ -83,28 +101,19 @@ abstract class BaseTrackerViewModel(app: Application, kind: RadioKind, mergeRadi
         if (n != null && snap.isNotEmpty()) recompute(snap)
     }
 
-    /** Clears all collected samples for all networks and restarts the position origin where the user stands now. */
-    fun resetAllSamples() {
-        engine.resetAll()
-        _state.update {
-            it.copy(
-                samples = emptyList(), estimate = ApEstimate.NONE, posX = 0.0, posY = 0.0, steps = 0,
-                phase = Phase.FIRST_READING, locked = false, waypoint = null, trendDb = null,
-                sampleCounts = emptyMap(), totalReadings = 0, smoothedRssi = it.selected?.rssi?.toDouble() ?: -100.0,
-            )
-        }
-    }
+    /** The shared engine has one selection; call this when returning to this screen so it points at ours again. */
+    fun reassertSelection() { _state.value.selected?.let { select(it) } }
+
+    /** Clears all collected samples for BOTH radios and restarts the position origin where the user stands now. */
+    fun resetAllSamples() = hub.resetAll()
 
     fun setCompassEnabled(on: Boolean) {
-        settings.compassEnabled = on
-        headingProvider.compassAllowed = on
-        headingProvider.restart()
+        hub.setCompassEnabled(on)
         _state.update { it.copy(compassEnabled = on) }
     }
 
     fun setHeightInches(inches: Int) {
-        settings.heightIn = inches
-        engine.setHeightInches(inches)
+        hub.setHeightInches(inches)
         _state.update { it.copy(heightIn = inches, strideM = engine.pdr.stepLengthM) }
     }
 
@@ -113,23 +122,25 @@ abstract class BaseTrackerViewModel(app: Application, kind: RadioKind, mergeRadi
 
     private var lastCountsMs = 0L
 
+    private fun ownCounts() = engine.counts().filterKeys { it.startsWith(prefix) }.mapKeys { it.key.removePrefix(prefix) }
+
     /** Records one RSSI reading for [id] at the current position; only the selected target triggers a re-estimate. */
     protected fun ingest(id: String, rssi: Double) {
         val now = System.currentTimeMillis()
-        val isSelected = engine.addReading(id, rssi, headingProvider.heading.value, now)
+        val isSelected = engine.addReading(prefix + id, rssi, hub.heading.heading.value, now, mergeRadiusM)
         if (now - lastCountsMs > 500) {
             lastCountsMs = now
-            _state.update { it.copy(sampleCounts = engine.counts(), totalReadings = engine.totalReadings()) }
+            _state.update { it.copy(sampleCounts = ownCounts(), totalReadings = engine.totalReadings()) }
         }
         if (isSelected) recompute(engine.snapshot())
     }
 
-    private fun recompute(snapshot: List<com.wifitri.visualizer.core.Sample>) {
+    private fun recompute(snapshot: List<Sample>) {
         if (busy) { dirty = true; return }
         busy = true
         viewModelScope.launch {
             val est = withContext(Dispatchers.Default) { engine.estimate(snapshot) }
-            val heading = headingProvider.heading.value
+            val heading = hub.heading.heading.value
             val r = engine.finish(est, snapshot, heading)
             _state.update {
                 refreshGuidance(
@@ -144,12 +155,12 @@ abstract class BaseTrackerViewModel(app: Application, kind: RadioKind, mergeRadi
         }
     }
 
-    /** Rebuilds the experimental map from everything collected so far (cheap enough to call every couple of seconds). */
+    /** Rebuilds the experimental map from everything collected so far, from BOTH radios. */
     fun refreshMap(heatId: String?) {
         val series = engine.allSeries(); val path = engine.path()
         viewModelScope.launch {
-            val m = withContext(Dispatchers.Default) { com.wifitri.visualizer.core.MapBuilder.build(series, path, heatId) }
-            _state.update { it.copy(map = m) }
+            val m = withContext(Dispatchers.Default) { MapBuilder.build(series, path, heatId) }
+            _state.update { it.copy(map = m, totalReadings = engine.totalReadings()) }
         }
     }
 

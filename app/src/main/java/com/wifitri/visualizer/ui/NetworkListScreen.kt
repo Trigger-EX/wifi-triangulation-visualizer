@@ -114,13 +114,13 @@ fun NetworkListScreen(
         } else if (state.throttled) ThrottleBanner()
         Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (state.totalReadings == 0) "Samples are collected from every ${if (ble) "device" else "network"} in the background as you walk, " +
+                if (state.sampleCounts.isEmpty()) "Samples are collected from every ${if (ble) "device" else "network"} in the background as you walk, " +
                     "so any of them is ready to track later."
-                else "Collected ${state.totalReadings} samples from ${state.sampleCounts.size} ${if (ble) "devices" else "networks"} so far, " +
+                else "Collected ${state.sampleCounts.values.sum()} samples from ${state.sampleCounts.size} ${if (ble) "devices" else "networks"} so far, " +
                     "tagged with where you were. Walk around, then pick any one.",
                 color = Color.White.copy(0.6f), fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.weight(1f),
             )
-            if (state.totalReadings > 0) ConfirmReset(state, onResetAll) { open ->
+            if (state.totalReadings > 0 || state.sampleCounts.isNotEmpty()) ConfirmReset(state, onResetAll) { open ->
                 Text(
                     "Reset", color = HotRed, fontWeight = FontWeight.Bold, fontSize = 13.sp,
                     modifier = Modifier.padding(start = 12.dp).clip(RoundedCornerShape(50)).background(HotRed.copy(0.15f))

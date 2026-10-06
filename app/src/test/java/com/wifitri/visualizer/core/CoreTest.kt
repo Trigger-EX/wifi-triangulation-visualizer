@@ -151,21 +151,21 @@ class CoreTest {
     }
 
     @Test fun engineMergesNearbyReadingsWhenAsked() {
-        val e = TrackerEngine({ ApLocator() }, 67, mergeRadiusM = 0.5)
+        val e = TrackerEngine(67)
         e.select("a")
-        e.addReading("a", -60.0, 0.0, 0L); e.addReading("a", -58.0, 0.0, 100L)
+        e.addReading("a", -60.0, 0.0, 0L, 0.5); e.addReading("a", -58.0, 0.0, 100L, 0.5)
         assertEquals(1, e.snapshot().size) // same spot: merged
         repeat(3) { e.pdr.onStep(0.0) } // walk ~2 m
-        e.addReading("a", -55.0, 0.0, 200L)
+        e.addReading("a", -55.0, 0.0, 200L, 0.5)
         assertEquals(2, e.snapshot().size)
-        val plain = TrackerEngine({ ApLocator() }, 67)
+        val plain = TrackerEngine(67)
         plain.select("a")
         plain.addReading("a", -60.0, 0.0, 0L); plain.addReading("a", -58.0, 0.0, 100L)
         assertEquals(2, plain.snapshot().size) // WiFi mode: every scan is a sample
     }
 
     @Test fun engineRecordsEveryNetworkAndKeepsHistoryAcrossSelection() {
-        val e = TrackerEngine({ ApLocator() }, 67)
+        val e = TrackerEngine(67)
         e.select("A")
         for (i in 0 until 6) {
             assertEquals(i >= 0, e.addReading("A", -60.0 - i, 0.0, i * 1000L)) // selected
@@ -181,8 +181,25 @@ class CoreTest {
         assertTrue(e.estimate(e.snapshot()).method != Method.NONE)
     }
 
+    @Test fun oneEngineHoldsBothRadiosOnASharedPath() {
+        val e = TrackerEngine(67)
+        e.select("w:aa")
+        repeat(5) { i ->
+            e.addReading("w:aa", -60.0 - i, 0.0, i * 1000L)
+            e.addReading("b:11", -70.0 + i, 0.0, i * 1000L, 0.5)
+            e.onStep(0.0); e.onStep(0.0); e.onStep(0.0)
+        }
+        assertEquals(setOf("w:aa", "b:11"), e.counts().keys)
+        // both radios' samples sit on the same dead-reckoned path
+        val wifiYs = e.snapshot("w:aa").map { it.y }
+        val bleYs = e.snapshot("b:11").map { it.y }
+        assertEquals(wifiYs, bleYs)
+        assertTrue(e.path().size > 10)
+        assertEquals("w:aa", e.topSeries()?.takeIf { e.counts()[it] == 5 })
+    }
+
     @Test fun resetClearsEverythingButKeepsSelection() {
-        val e = TrackerEngine({ ApLocator() }, 67)
+        val e = TrackerEngine(67)
         e.select("A")
         e.addReading("A", -60.0, 0.0, 0L); e.addReading("B", -70.0, 0.0, 0L)
         repeat(4) { e.pdr.onStep(0.0) }

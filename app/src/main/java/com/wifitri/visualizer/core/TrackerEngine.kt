@@ -9,14 +9,11 @@ import kotlin.math.hypot
  * user's dead-reckoned position. Selecting a different target therefore reuses the walking already done: its
  * history is simply replayed through the estimator.
  *
- * [mergeRadiusM] > 0 folds readings taken within that distance of a series' previous sample into it
+ * One engine serves both radios (series ids carry a radio prefix), so WiFi and Bluetooth samples share one position and path.
+ * `mergeRadiusM` > 0 in [addReading] folds readings taken within that distance of a series' previous sample into it
  * (used for Bluetooth, where advertisements arrive many times per second while you stand still).
  */
-class TrackerEngine(
-    private val locatorFactory: () -> ApLocator,
-    heightInches: Int,
-    private val mergeRadiusM: Double = 0.0,
-) {
+class TrackerEngine(heightInches: Int) {
     val pdr = Pdr(Pdr.strideFromHeightInches(heightInches))
 
     private class Series {
@@ -27,6 +24,7 @@ class TrackerEngine(
     }
 
     private val series = HashMap<String, Series>()
+    private var locatorFactory: () -> ApLocator = { ApLocator() }
     private var locator = locatorFactory()
     private val lock = LockTracker()
     private var selectedId: String? = null
@@ -42,6 +40,9 @@ class TrackerEngine(
         if (path.size > MAX_PATH) path.removeAt(0)
     }
 
+    /** The series with the most samples (used to pick what the map's heat layer shows by default). */
+    fun topSeries(): String? = series.maxByOrNull { it.value.samples.size }?.key
+
     fun path(): List<PathPoint> = path.toList()
 
     /** Every network's samples, for the map. */
@@ -50,7 +51,7 @@ class TrackerEngine(
     fun setHeightInches(inches: Int) { pdr.stepLengthM = Pdr.strideFromHeightInches(inches) }
 
     /** Records a reading for [id] at the current position. Returns true if [id] is the selected target. */
-    fun addReading(id: String, rssi: Double, headingRad: Double, tMs: Long): Boolean {
+    fun addReading(id: String, rssi: Double, headingRad: Double, tMs: Long, mergeRadiusM: Double = 0.0): Boolean {
         val s = series.getOrPut(id) { Series() }
         s.smoothed = s.filter.update(rssi)
         s.lastMs = tMs
@@ -70,8 +71,9 @@ class TrackerEngine(
     }
 
     /** Switches the target; its stored history is used immediately. */
-    fun select(id: String?) {
+    fun select(id: String?, factory: () -> ApLocator = locatorFactory) {
         selectedId = id
+        locatorFactory = factory
         locator = locatorFactory()
         lock.reset()
     }

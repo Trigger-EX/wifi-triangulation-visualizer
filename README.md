@@ -37,7 +37,7 @@ Pure logic lives in `core/` (no Android imports) with JVM unit tests in `app/src
 - **Pause scanning** (list screens): stops scan requests and freezes the list and sample collection; steps still count.
 
 ## Map (experimental)
-A separate **Map β** tab sketches where you've been and where walls might be: the walked path, an interpolated signal heat map for the
+A separate **Map β** tab uses WiFi and Bluetooth together (one shared position, path and sample store; entering it switches both radios on and leaving it restores each radio's previous on/off state) and sketches where you've been and where walls might be: the walked path, an interpolated signal heat map for the
 selected network, wall pieces and doorway candidates. Walls are inferred only where you *cross* them, from several networks' signals jumping at
 once by more than distance explains (about 8 dB or more; thin drywall is invisible), then joined when aligned; a doorway is where your path
 passed through an inferred wall line with no jump. It is a rough sketch, limited by walking drift and signal fading.

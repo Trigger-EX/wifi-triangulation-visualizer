@@ -12,9 +12,9 @@ import kotlinx.coroutines.launch
  * and readings within 0.5 m of the previous sample are merged into it rather than piling up.
  */
 class BleViewModel(app: Application) : BaseTrackerViewModel(
-    app, RadioKind.BLUETOOTH, mergeRadiusM = 0.5,
+    app, RadioKind.BLUETOOTH, prefix = "b:", mergeRadiusM = 0.5,
     // BLE advertisers: typical RSSI at 1 m is about -60 dBm, free-space-like exponent, noisier readings.
-    { ApLocator(pathLossN = 2.2, p0Prior = -60.0, noiseDb = 3.5) },
+    locatorFactory = { ApLocator(pathLossN = 2.2, p0Prior = -60.0, noiseDb = 3.5) },
 ) {
     private val scanner = BleScanner(app)
     private val recent = HashMap<String, ArrayDeque<Int>>()
@@ -53,8 +53,8 @@ class BleViewModel(app: Application) : BaseTrackerViewModel(
 
     override fun applyPaused(paused: Boolean) = scanner.setPaused(paused)
 
-    override fun start() { scanner.start(); headingProvider.start(); stepProvider.start() }
-    override fun stop() { scanner.stop(); headingProvider.stop(); stepProvider.stop() }
+    override fun start() { super.start(); scanner.start() }
+    override fun stop() { scanner.stop(); super.stop() }
 
     private companion object { const val INGEST_INTERVAL_MS = 300L }
 }
