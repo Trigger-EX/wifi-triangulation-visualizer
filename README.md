@@ -11,11 +11,16 @@ position (dead-reckoned from the step detector + compass) and estimates the dire
 - Heads-up radar showing your trail (dots coloured by RSSI), the estimated AP star with an uncertainty circle, and north marker.
 
 ## How it works
-1. **Position:** each detected step moves you `stepLength` metres along the compass heading (pedestrian dead reckoning, x = east, y = north).
-2. **Signal:** RSSI of the selected BSSID is Kalman-smoothed and stored as a sample `(x, y, rssi)` on every fresh scan.
-3. **Estimate:** a weighted plane fit of RSSI over position gives a gradient direction (works from ~6 samples); once the walk has
-   width (an L or zig-zag), a log-distance path-loss model is fitted by grid search + Gauss–Newton to get an actual AP position.
-4. **Guidance:** the world bearing is converted to a bearing relative to where the phone points.
+1. **Position:** each detected step moves you one stride along the heading (pedestrian dead reckoning, x = east, y = north).
+   Stride is estimated from your height (≈ 41.5% of height); set it on the tracking screen.
+2. **Signal:** RSSI of the selected BSSID is Kalman-smoothed and stored with your position on every fresh scan.
+3. **Estimate, from just two readings:** a weighted plane fit of RSSI over position gives a direction. The app also computes an honest
+   uncertainty (≈95% half-angle) from signal noise and walking geometry. A straight walk can't resolve left/right, so the best it can claim is a
+   ~±90° half-plane, and if the signal barely changes it says "undetermined". With 8+ readings and a non-straight walk, a log-distance path-loss
+   model is fitted (grid search + Gauss–Newton) to get an actual AP position and a tighter bearing.
+4. **Lock-on:** until the direction is within ±20° (hysteresis to ±35°), the big arrow points to *where the app wants your next reading from*:
+   first a ~3 m straight leg, then a ~4 m sideways leg, then the spot that adds the most information (D-optimal design). Once locked, the
+   arrow points at the access point and the ring wedge shows the remaining uncertainty.
 
 Pure logic lives in `core/` (no Android imports) with JVM unit tests in `app/src/test`.
 

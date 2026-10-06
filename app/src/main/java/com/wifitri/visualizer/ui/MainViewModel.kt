@@ -5,12 +5,16 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.wifitri.visualizer.core.ApEstimate
 import com.wifitri.visualizer.core.ApLocator
-import com.wifitri.visualizer.core.Hint
+import com.wifitri.visualizer.core.LockTracker
+import com.wifitri.visualizer.core.Navigator
 import com.wifitri.visualizer.core.Pdr
+import com.wifitri.visualizer.core.Phase
+import com.wifitri.visualizer.core.Plan
 import com.wifitri.visualizer.core.RssiFilter
 import com.wifitri.visualizer.core.Sample
-import com.wifitri.visualizer.core.hint
+import com.wifitri.visualizer.core.Waypoint
 import com.wifitri.visualizer.core.relativeBearing
+import com.wifitri.visualizer.core.signalTrendDb
 import com.wifitri.visualizer.data.AppSettings
 import com.wifitri.visualizer.sensors.HeadingProvider
 import com.wifitri.visualizer.sensors.HeadingSource
@@ -25,6 +29,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.atan2
+import kotlin.math.hypot
 
 data class UiState(
     val networks: List<ScanResultUi> = emptyList(),
@@ -35,10 +41,22 @@ data class UiState(
     val posX: Double = 0.0,
     val posY: Double = 0.0,
     val smoothedRssi: Double = -100.0,
+    /** Estimated AP direction relative to where the phone points. */
     val relBearingRad: Double = 0.0,
-    val hint: Hint = Hint.WALK_MORE,
+    val phase: Phase = Phase.FIRST_READING,
+    val locked: Boolean = false,
+    /** Where the app wants the next reading taken (absolute, metres), and how to get there from here. */
+    val waypoint: Waypoint? = null,
+    val waypointRelRad: Double = 0.0,
+    val waypointDistM: Double = 0.0,
+    val trendDb: Double? = null,
+    val lastReadingMs: Long = 0L,
+    val scanIntervalMs: Long = WifiScanner.SCAN_INTERVAL_MS,
     val throttled: Boolean = false,
-    val stepLengthM: Double = 0.7,
+    val heightCm: Int = 170,
+    val strideM: Double = 0.7,
+    val radarSize: Float = 1f,
+    val radarRangeM: Float = 0f,
     val steps: Int = 0,
     val headingSource: HeadingSource = HeadingSource.NONE,
     val autoDisableThrottle: Boolean = false,
@@ -53,14 +71,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val scanner = WifiScanner(app)
     private val headingProvider = HeadingProvider(app)
     private val stepProvider = StepProvider(app)
-    private val pdr = Pdr()
+    private val pdr = Pdr(Pdr.strideFromHeightM(settings.heightCm.toDouble()))
     private val filter = RssiFilter()
     private val locator = ApLocator()
+    private val lockTracker = LockTracker()
     private val samples = ArrayList<Sample>()
     private var lastTimestampUs = -1L
+    private var lastArrivalScanMs = 0L
 
     private val _state = MutableStateFlow(
-        UiState(autoDisableThrottle = settings.autoDisableThrottle, compassEnabled = settings.compassEnabled, adbCommand = throttle.adbCommand),
+        UiState(
+            autoDisableThrottle = settings.autoDisableThrottle, compassEnabled = settings.compassEnabled, adbCommand = throttle.adbCommand,
+            heightCm = settings.heightCm, strideM = pdr.stepLengthM, radarSize = settings.radarSize, radarRangeM = settings.radarRangeM,
+        ),
     )
     val state: StateFlow<UiState> = _state
 
@@ -69,11 +92,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { headingProvider.source.collect { src -> _state.update { it.copy(headingSource = src) } } }
         viewModelScope.launch { scanner.results.collect { onScan(it) } }
         viewModelScope.launch { scanner.throttled.collect { t -> _state.update { it.copy(throttled = t) } } }
+        viewModelScope.launch { scanner.lastResultAtMs.collect { t -> _state.update { it.copy(lastReadingMs = t) } } }
         viewModelScope.launch { headingProvider.heading.collect { h -> _state.update { refreshGuidance(it.copy(headingRad = h)) } } }
         viewModelScope.launch {
             stepProvider.steps.collect {
                 pdr.onStep(headingProvider.heading.value)
-                _state.update { it.copy(posX = pdr.x, posY = pdr.y, steps = it.steps + 1) }
+                _state.update { refreshGuidance(it.copy(posX = pdr.x, posY = pdr.y, steps = it.steps + 1)) }
+                requestScanIfArrived()
             }
         }
     }
@@ -95,7 +120,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val fast = status == ThrottleStatus.DISABLED_BY_APP || status == ThrottleStatus.ALREADY_OFF
             scanner.intervalMs = if (fast) FAST_INTERVAL_MS else WifiScanner.SCAN_INTERVAL_MS
             if (fast) scanner.clearThrottleWarning()
-            _state.update { it.copy(throttleStatus = status) }
+            _state.update { it.copy(throttleStatus = status, scanIntervalMs = scanner.intervalMs) }
         }
     }
 
@@ -123,11 +148,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun resetTrail() {
-        samples.clear(); pdr.reset(); filter.reset(); locator.reset()
-        _state.update { it.copy(samples = emptyList(), estimate = ApEstimate.NONE, posX = 0.0, posY = 0.0, steps = 0, hint = Hint.WALK_MORE) }
+        samples.clear(); pdr.reset(); filter.reset(); locator.reset(); lockTracker.reset()
+        _state.update {
+            it.copy(
+                samples = emptyList(), estimate = ApEstimate.NONE, posX = 0.0, posY = 0.0, steps = 0,
+                phase = Phase.FIRST_READING, locked = false, waypoint = null, trendDb = null,
+            )
+        }
     }
 
-    fun setStepLength(m: Double) { pdr.stepLengthM = m; _state.update { it.copy(stepLengthM = m) } }
+    fun setHeightCm(cm: Int) {
+        settings.heightCm = cm
+        pdr.stepLengthM = Pdr.strideFromHeightM(cm.toDouble())
+        _state.update { it.copy(heightCm = cm, strideM = pdr.stepLengthM) }
+    }
+
+    fun setRadarSize(f: Float) { settings.radarSize = f; _state.update { it.copy(radarSize = f) } }
+    fun setRadarRange(m: Float) { settings.radarRangeM = m; _state.update { it.copy(radarRangeM = m) } }
 
     private fun onScan(list: List<ScanResultUi>) {
         val sel = _state.value.selected
@@ -141,18 +178,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val snapshot = samples.toList()
         viewModelScope.launch {
             val est = withContext(Dispatchers.Default) { locator.estimate(snapshot) }
-            _state.update { refreshGuidance(it.copy(samples = snapshot, estimate = est, smoothedRssi = smooth)) }
+            val locked = lockTracker.update(est, snapshot.size)
+            val plan: Plan = Navigator.plan(snapshot, est, pdr.x, pdr.y, headingProvider.heading.value, locked)
+            _state.update {
+                refreshGuidance(
+                    it.copy(
+                        samples = snapshot, estimate = est, smoothedRssi = smooth, phase = plan.phase, locked = locked,
+                        waypoint = plan.waypoint, trendDb = signalTrendDb(snapshot),
+                    ),
+                )
+            }
         }
+    }
+
+    /** When the user reaches the suggested spot, ask for a scan right away instead of waiting for the timer. */
+    private fun requestScanIfArrived() {
+        val s = _state.value
+        if (s.waypoint == null || s.waypointDistM >= ARRIVED_M) return
+        val now = System.currentTimeMillis()
+        if (now - lastArrivalScanMs < 8_000) return
+        lastArrivalScanMs = now
+        scanner.requestScan()
     }
 
     private fun refreshGuidance(s: UiState): UiState {
         val rel = relativeBearing(s.estimate.bearingWorldRad, s.headingRad)
-        val n = s.samples.size
-        val trend = if (n >= 3) (s.samples[n - 1].rssi - s.samples[n - 3].rssi) / 2.0 else 0.0
-        return s.copy(relBearingRad = rel, hint = hint(rel, s.estimate, trend, s.smoothedRssi))
+        val wp = s.waypoint
+        val wpRel = wp?.let { relativeBearing(atan2(it.x - s.posX, it.y - s.posY), s.headingRad) } ?: 0.0
+        val wpDist = wp?.let { hypot(it.x - s.posX, it.y - s.posY) } ?: 0.0
+        return s.copy(relBearingRad = rel, waypointRelRad = wpRel, waypointDistM = wpDist)
     }
 
     override fun onCleared() { stop() }
 
-    private companion object { const val FAST_INTERVAL_MS = 6_000L }
+    companion object {
+        private const val FAST_INTERVAL_MS = 6_000L
+        const val ARRIVED_M = 1.0
+    }
 }

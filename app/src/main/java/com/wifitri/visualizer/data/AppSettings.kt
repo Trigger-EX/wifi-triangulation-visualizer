@@ -18,4 +18,18 @@ class AppSettings(context: Context) {
     var savedThrottleValue: Int
         get() = p.getInt("saved_throttle", -1)
         set(v) = p.edit().putInt("saved_throttle", v).apply()
+
+    var heightCm: Int
+        get() = p.getInt("height_cm", 170)
+        set(v) = p.edit().putInt("height_cm", v).apply()
+
+    /** Fraction of the screen width used by the radar. */
+    var radarSize: Float
+        get() = p.getFloat("radar_size", 1f)
+        set(v) = p.edit().putFloat("radar_size", v).apply()
+
+    /** Radar range in metres; 0 = automatic. */
+    var radarRangeM: Float
+        get() = p.getFloat("radar_range", 0f)
+        set(v) = p.edit().putFloat("radar_range", v).apply()
 }

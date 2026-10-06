@@ -34,6 +34,9 @@ class WifiScanner(context: Context) {
     val results: StateFlow<List<ScanResultUi>> = _results
     private val _throttled = MutableStateFlow(false)
     val throttled: StateFlow<Boolean> = _throttled
+    private val _lastResultAtMs = MutableStateFlow(0L)
+    /** Wall-clock time of the most recent scan-results broadcast (0 = none yet). */
+    val lastResultAtMs: StateFlow<Long> = _lastResultAtMs
     private var running = false
 
     /** Time between automatic scan requests; shortened when throttling is off. */
@@ -56,6 +59,7 @@ class WifiScanner(context: Context) {
 
     @SuppressLint("MissingPermission")
     private fun publish() {
+        _lastResultAtMs.value = System.currentTimeMillis()
         val list = try { wm.scanResults } catch (_: SecurityException) { emptyList() }
         _results.value = list.map {
             val ssid = if (Build.VERSION.SDK_INT >= 33) it.wifiSsid?.toString()?.trim('"').orEmpty() else @Suppress("DEPRECATION") it.SSID

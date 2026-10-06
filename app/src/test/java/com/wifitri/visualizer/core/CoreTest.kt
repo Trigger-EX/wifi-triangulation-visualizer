@@ -30,8 +30,8 @@ class CoreTest {
         assertTrue(e.confidence > 0.0)
     }
 
-    @Test fun tooFewSamplesGivesNone() {
-        val s = List(5) { Sample(it.toDouble() * 2, 0.0, -60.0, 0.0, it * 1000L) }
+    @Test fun singleSampleGivesNone() {
+        val s = listOf(Sample(0.0, 0.0, -60.0, 0.0, 0L))
         assertEquals(Method.NONE, ApLocator().estimate(s).method)
     }
 
@@ -77,5 +77,73 @@ class CoreTest {
         var h = 0.0
         for (i in 0..100) h = g.onGyro(1.0, 1.0, 0.0, i * 10_000_000L)
         assertEquals(0.0, h, 1e-9)
+    }
+
+    @Test fun twoReadingsGiveTentativeButHonestGuess() {
+        // 3 m walk toward an AP 12 m away changes RSSI by only ~3 dB: a guess is returned, but flagged as undetermined
+        val s = listOf(
+            Sample(0.0, 0.0, model(0.0, 0.0, 0.0, 12.0), 0.0, 0L),
+            Sample(0.0, 3.0, model(0.0, 3.0, 0.0, 12.0), 0.0, 10_000L),
+        )
+        val e = ApLocator().estimate(s)
+        assertEquals(Method.GRADIENT, e.method)
+        assertTrue(abs(wrapAngle(e.bearingWorldRad)) < 0.01) // points along the walk, toward the stronger reading
+        assertTrue(!e.directionKnown)
+    }
+
+    @Test fun twoReadingsWithBigChangeNarrowToHalfPlane() {
+        val s = listOf(Sample(0.0, 0.0, -75.0, 0.0, 0L), Sample(0.0, 4.0, -60.0, 0.0, 10_000L))
+        val e = ApLocator().estimate(s)
+        assertTrue(e.directionKnown)
+        // a straight line can never do better than the +-90 deg half-plane
+        assertTrue(e.bearingSigmaRad > Math.toRadians(60.0))
+    }
+
+    @Test fun tooCloseReadingsGiveNothing() {
+        val s = listOf(Sample(0.0, 0.0, -75.0, 0.0, 0L), Sample(0.0, 1.0, -60.0, 0.0, 10_000L))
+        assertEquals(Method.NONE, ApLocator().estimate(s).method)
+    }
+
+    @Test fun uncertaintyShrinksWithBetterGeometry() {
+        val rnd = Random(5)
+        val pts = ArrayList<Pair<Double, Double>>()
+        for (i in 0..14) pts.add(0.0 to i * 0.7)
+        for (i in 1..14) pts.add(i * 0.7 to 14 * 0.7)
+        val all = pts.mapIndexed { i, p -> Sample(p.first, p.second, model(p.first, p.second, 10.0, 5.0) + rnd.nextGaussian() * 2, 0.0, i * 4000L) }
+        val line = ApLocator().estimate(all.take(15))
+        val full = ApLocator().estimate(all)
+        assertTrue(full.bearingSigmaRad < line.bearingSigmaRad)
+    }
+
+    @Test fun plannerAsksForSidewaysLegAfterStraightWalk() {
+        val s = listOf(Sample(0.0, 0.0, -60.0, 0.0, 0L), Sample(0.0, 3.0, -55.0, 0.0, 1000L))
+        val plan = Navigator.plan(s, ApEstimate.NONE, 0.0, 3.0, 0.0, false)
+        assertEquals(Phase.ANGLE, plan.phase)
+        val w = plan.waypoint!!
+        assertEquals(4.0, w.x, 1e-9) // right-hand side of a northbound walk is east
+        assertEquals(3.0, w.y, 1e-9)
+    }
+
+    @Test fun plannerPhasesFollowReadingCount() {
+        assertEquals(Phase.FIRST_READING, Navigator.plan(emptyList(), ApEstimate.NONE, 0.0, 0.0, 0.0, false).phase)
+        val one = listOf(Sample(0.0, 0.0, -60.0, 0.0, 0L))
+        val p = Navigator.plan(one, ApEstimate.NONE, 0.0, 0.0, PI / 2, false)
+        assertEquals(Phase.BASELINE, p.phase)
+        assertEquals(Navigator.BASELINE_M, p.waypoint!!.x, 1e-9) // heading east -> waypoint east
+    }
+
+    @Test fun lockTrackerNeedsTightEstimateAndHasHysteresis() {
+        val t = LockTracker()
+        val loose = ApEstimate(0.0, 0.0, 0.0, 5.0, 0.8, Method.PATH_LOSS_FIT, Math.toRadians(40.0))
+        val tight = loose.copy(bearingSigmaRad = Math.toRadians(15.0))
+        val mid = loose.copy(bearingSigmaRad = Math.toRadians(30.0))
+        assertTrue(!t.update(loose, 20))
+        assertTrue(t.update(tight, 20))
+        assertTrue(t.update(mid, 20)) // stays locked inside the hysteresis band
+        assertTrue(!t.update(loose, 20))
+    }
+
+    @Test fun strideFromHeight() {
+        assertEquals(0.7055, Pdr.strideFromHeightM(170.0), 1e-4)
     }
 }

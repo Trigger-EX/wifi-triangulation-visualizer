@@ -4,7 +4,9 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** Wraps an angle to (-PI, PI]. */
 fun wrapAngle(a: Double): Double {
@@ -33,4 +35,25 @@ fun solve3x3(m: Array<DoubleArray>, b: DoubleArray): DoubleArray? {
         val t = Array(3) { r -> DoubleArray(3) { k -> if (k == c) b[r] else m[r][k] } }
         det(t) / d
     }
+}
+
+fun det3(a: Array<DoubleArray>): Double =
+    a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) -
+        a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
+        a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0])
+
+/** Largest distance between any two samples' bounding-box corners (cheap "how far have we walked" measure). */
+fun extentOf(s: List<Sample>): Double =
+    if (s.isEmpty()) 0.0 else kotlin.math.hypot(s.maxOf { it.x } - s.minOf { it.x }, s.maxOf { it.y } - s.minOf { it.y })
+
+/** Std-dev of the walk along its narrow axis (smaller eigenvalue of the position covariance). */
+fun minorSpread(s: List<Sample>): Double {
+    if (s.isEmpty()) return 0.0
+    val mx = s.sumOf { it.x } / s.size
+    val my = s.sumOf { it.y } / s.size
+    val a = s.sumOf { (it.x - mx).pow(2) } / s.size
+    val c = s.sumOf { (it.y - my).pow(2) } / s.size
+    val b = s.sumOf { (it.x - mx) * (it.y - my) } / s.size
+    val l = (a + c) / 2 - sqrt(((a - c) / 2).pow(2) + b * b)
+    return sqrt(l.coerceAtLeast(0.0))
 }

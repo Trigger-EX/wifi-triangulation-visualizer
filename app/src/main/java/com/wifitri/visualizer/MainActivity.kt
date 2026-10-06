@@ -20,6 +20,7 @@ import com.wifitri.visualizer.ui.MainViewModel
 import com.wifitri.visualizer.ui.NetworkListScreen
 import com.wifitri.visualizer.ui.PermissionGate
 import com.wifitri.visualizer.ui.SettingsScreen
+import com.wifitri.visualizer.ui.TrackerActions
 import com.wifitri.visualizer.ui.TrackerScreen
 import com.wifitri.visualizer.ui.theme.AppTheme
 import com.wifitri.visualizer.ui.theme.Navy
@@ -65,8 +66,11 @@ class MainActivity : ComponentActivity() {
                         else -> {
                             BackHandler { vm.select(null) }
                             TrackerScreen(
-                                state, onBack = { vm.select(null) }, onReset = vm::resetTrail,
-                                onStepLength = vm::setStepLength, onSettings = { showSettings = true },
+                                state,
+                                TrackerActions(
+                                    onBack = { vm.select(null) }, onReset = vm::resetTrail, onSettings = { showSettings = true },
+                                    onHeightCm = vm::setHeightCm, onRadarSize = vm::setRadarSize, onRadarRange = vm::setRadarRange,
+                                ),
                             )
                         }
                     }
