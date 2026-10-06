@@ -56,7 +56,8 @@ fun SettingsScreen(
         SettingCard(
             title = "⚡ Disable WiFi scan throttling",
             body = "Turns Developer options → “Wi-Fi scan throttling” off while the app is open (and restores it afterwards), " +
-                "so scans arrive every ~6 s instead of ~every 30 s.",
+                "so scans arrive every ~6 s instead of ~every 30 s. Rooted with Magisk? Just switch this on and approve the " +
+                "Superuser prompt. Otherwise grant a one-time permission over adb.",
             checked = state.autoDisableThrottle, onChecked = onAutoThrottle,
         ) {
             val (msg, col) = when (state.throttleStatus) {
@@ -64,11 +65,11 @@ fun SettingsScreen(
                 ThrottleStatus.DISABLED_BY_APP -> "✅ Active — throttling is off while you use the app." to NeonLime
                 ThrottleStatus.ALREADY_OFF -> "✅ Throttling is already off in Developer options." to NeonLime
                 ThrottleStatus.UNSUPPORTED -> "⚠ This Android version/device has no scan-throttling setting." to NeonOrange
-                ThrottleStatus.NEEDS_PERMISSION -> "⚠ One-time setup needed: Android only lets apps change this after a permission is granted over adb." to NeonOrange
+                ThrottleStatus.NEEDS_PERMISSION -> "⚠ No access yet: root (Magisk) wasn't available or was denied. Toggle off/on to be asked again, or use the adb command below." to NeonOrange
             }
             Text(msg, color = col, fontSize = 13.sp)
             if (state.throttleStatus == ThrottleStatus.NEEDS_PERMISSION) {
-                Text("Run this on a computer with the phone connected (USB debugging on):", color = Color.White.copy(0.75f), fontSize = 12.sp)
+                Text("No root? Run this on a computer with the phone connected (USB debugging on):", color = Color.White.copy(0.75f), fontSize = 12.sp)
                 Text(
                     state.adbCommand, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = NeonCyan,
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(0.4f)).padding(10.dp),

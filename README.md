@@ -30,7 +30,8 @@ Position tracking only needs *relative* headings, so a broken or disturbed compa
 The active source is shown on the tracking screen, and switching sources keeps the displayed heading continuous.
 
 ## Settings
-- **Disable WiFi scan throttling**: Android only lets an app change Developer options → "Wi-Fi scan throttling" if it holds
+- **Disable WiFi scan throttling**: with root (Magisk) just enable the toggle and approve the Superuser prompt; the app runs
+  `settings put global wifi_scan_throttle_enabled 0` via `su`. Without root, Android only lets an app change Developer options → "Wi-Fi scan throttling" if it holds
   `WRITE_SECURE_SETTINGS`, which can't be requested at runtime. Grant it once:
   `adb shell pm grant com.wifitri.visualizer android.permission.WRITE_SECURE_SETTINGS`.
   The app then switches throttling off while open, scans every ~6 s, and restores your original value when you leave.

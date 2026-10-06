@@ -85,15 +85,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun stop() {
         scanner.stop(); headingProvider.stop(); stepProvider.stop()
-        throttle.restore() // leave the user's Developer options exactly as we found them
+        throttle.restoreAsync() // leave the user's Developer options exactly as we found them
     }
 
     private fun applyThrottleSetting() {
-        val status = throttle.sync(settings.autoDisableThrottle)
-        val fast = status == ThrottleStatus.DISABLED_BY_APP || status == ThrottleStatus.ALREADY_OFF
-        scanner.intervalMs = if (fast) FAST_INTERVAL_MS else WifiScanner.SCAN_INTERVAL_MS
-        if (fast) scanner.clearThrottleWarning()
-        _state.update { it.copy(throttleStatus = status) }
+        // May block on the Magisk Superuser prompt, so run it off the main thread.
+        viewModelScope.launch {
+            val status = throttle.sync(settings.autoDisableThrottle)
+            val fast = status == ThrottleStatus.DISABLED_BY_APP || status == ThrottleStatus.ALREADY_OFF
+            scanner.intervalMs = if (fast) FAST_INTERVAL_MS else WifiScanner.SCAN_INTERVAL_MS
+            if (fast) scanner.clearThrottleWarning()
+            _state.update { it.copy(throttleStatus = status) }
+        }
     }
 
     fun setAutoDisableThrottle(on: Boolean) {
