@@ -47,7 +47,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,7 +73,7 @@ class TrackerActions(
     val onBack: () -> Unit,
     val onReset: () -> Unit,
     val onSettings: () -> Unit,
-    val onHeightCm: (Int) -> Unit,
+    val onHeightIn: (Int) -> Unit,
     val onRadarSize: (Float) -> Unit,
     val onRadarRange: (Float) -> Unit,
 )
@@ -107,7 +110,7 @@ fun TrackerScreen(state: UiState, actions: TrackerActions) {
         Radar(state)
 
         SettingsCard(state, actions)
-        if (state.throttled) ThrottleBanner()
+        if (state.throttled && state.kind == RadioKind.WIFI) ThrottleBanner()
     }
 }
 
@@ -118,15 +121,23 @@ private class Guide(val title: String, val body: String)
 private fun guideFor(s: UiState): Guide {
     val stride = s.strideM
     fun stepsFor(m: Double) = max(1, (m / stride).roundToInt())
-    val slow = s.scanIntervalMs >= 20_000
-    val cadence = if (slow) "about every 30 seconds (Android limits WiFi scans)" else "every few seconds"
+    val ble = s.kind == RadioKind.BLUETOOTH
+    val slow = !ble && s.scanIntervalMs >= 20_000
+    val cadence = when {
+        ble -> "continuously, several times a second"
+        slow -> "about every 30 seconds (Android limits WiFi scans)"
+        else -> "every few seconds"
+    }
+    val pause = if (ble) "pause for 2–3 seconds so the signal averages out" else "stand still until READINGS increases"
     val sigma = deg(s.estimate.bearingSigmaRad).roundToInt()
-    val arrived = s.waypoint != null && s.waypointDistM < MainViewModel.ARRIVED_M
+    val arrived = s.waypoint != null && s.waypointDistM < BaseTrackerViewModel.ARRIVED_M
 
     if (arrived && s.phase != Phase.LOCKED) {
         return Guide(
             "Hold still: waiting for a reading",
-            "You are at the suggested spot. Stand still and keep the phone level and pointing forward until the READINGS counter goes up " +
+            if (ble) "You are at the suggested spot. Stand still for 2–3 seconds with the phone level and pointing forward, so the Bluetooth signal averages out. " +
+                "Readings arrive $cadence and are merged while you stay put; a new reading is added once you move about half a metre."
+            else "You are at the suggested spot. Stand still and keep the phone level and pointing forward until the READINGS counter goes up " +
                 "(scans arrive $cadence). Each reading is tied to where you are standing when it arrives, so moving during a scan blurs the data." +
                 if (slow) " For faster scans, enable “Disable WiFi scan throttling” in Settings (⚙)." else "",
         )
@@ -135,25 +146,26 @@ private fun guideFor(s: UiState): Guide {
         Phase.FIRST_READING -> Guide(
             "Take a starting reading",
             "Stand still, hold the phone flat in front of you and point it the way you intend to walk first. " +
-                "The app is waiting for the first WiFi scan to finish (scans arrive $cadence, and the first can take up to 30 seconds). " +
+                (if (ble) "The app is listening to the device’s Bluetooth advertisements; the first reading appears within a second or two. "
+                else "The app is waiting for the first WiFi scan to finish (scans arrive $cadence, and the first can take up to 30 seconds). ") +
                 "Don’t move until the READINGS counter shows 1.",
         )
         Phase.BASELINE -> Guide(
             "Walk straight ahead about ${"%.0f".format(com.wifitri.visualizer.core.Navigator.BASELINE_M)} m",
-            "Follow the arrow and walk in a straight line for roughly ${stepsFor(com.wifitri.visualizer.core.Navigator.BASELINE_M)} steps, then stop and stand still " +
-                "until READINGS increases. Comparing signal strength at two places gives the first (rough) direction guess. " +
+            "Follow the arrow and walk in a straight line for roughly ${stepsFor(com.wifitri.visualizer.core.Navigator.BASELINE_M)} steps, then stop and $pause. " +
+                "Comparing signal strength at two places gives the first (rough) direction guess. " +
                 "Keep the phone flat and pointed forward while you walk, because steps are converted into distance using your height.",
         )
         Phase.ANGLE -> Guide(
             "Step sideways about ${"%.0f".format(com.wifitri.visualizer.core.Navigator.ANGLE_M)} m to cross-check",
             "A straight walk only shows whether the signal is rising or falling along your path; it can’t tell which side of the path the access point is on. " +
-                "Turn and walk about ${stepsFor(com.wifitri.visualizer.core.Navigator.ANGLE_M)} steps toward the arrow (to the right of your previous path), then stand still for a reading. " +
+                "Turn and walk about ${stepsFor(com.wifitri.visualizer.core.Navigator.ANGLE_M)} steps toward the arrow (to the right of your previous path), then $pause. " +
                 "A second angle lets the app triangulate. The wedge on the compass ring shows how unsure the guess is.",
         )
         Phase.REFINING -> Guide(
             "Refining: go to the marker",
             "The arrow points to the spot (the ring marker on the radar) where one more reading would improve the estimate the most. " +
-                "Walk ${"%.1f".format(s.waypointDistM)} m (about ${stepsFor(s.waypointDistM)} steps), stand still until READINGS increases, and repeat. " +
+                "Walk ${"%.1f".format(s.waypointDistM)} m (about ${stepsFor(s.waypointDistM)} steps), $pause, and repeat. " +
                 "Lock-on happens when the direction is known to within ±20°" +
                 if (s.estimate.directionKnown) " (currently ±$sigma°)." else ".",
         )
@@ -161,7 +173,7 @@ private fun guideFor(s: UiState): Guide {
             "Locked on: follow the arrow",
             "The arrow now points at the access point itself, with an uncertainty of ±$sigma°. Walk toward it and check back every few readings; " +
                 "the signal should strengthen. Distance is only a rough guide indoors, because walls and people change signal strength a lot. " +
-                "If readings stop making sense after a long walk, tap Reset trail to start over.",
+                "If readings stop making sense after a long walk, tap Reset samples to start over.",
         )
     }
 }
@@ -208,7 +220,7 @@ private fun GuidanceCard(s: UiState, g: Guide, heat: Color, now: Long) {
                 },
                 Color.White,
             )
-            Stat("NEXT SCAN", nextText, Color.White)
+            if (s.kind == RadioKind.BLUETOOTH) Stat("SAMPLING", "live", Color.White) else Stat("NEXT SCAN", nextText, Color.White)
         }
     }
 }
@@ -292,7 +304,7 @@ private fun animatedAngle(targetDeg: Float): Float {
 private fun Compass(state: UiState, heat: Color) {
     val e = state.estimate
     val locking = state.phase.locking
-    val hold = state.phase == Phase.FIRST_READING || (state.waypoint != null && state.waypointDistM < MainViewModel.ARRIVED_M && locking)
+    val hold = state.phase == Phase.FIRST_READING || (state.waypoint != null && state.waypointDistM < BaseTrackerViewModel.ARRIVED_M && locking)
     val showArrow = !hold
     val arrowTarget = (if (locking) deg(state.waypointRelRad) else deg(state.relBearingRad)).toFloat()
     val arrowDeg = animatedAngle(arrowTarget)
@@ -394,6 +406,10 @@ private fun autoRange(s: UiState): Double {
 @Composable
 private fun Radar(state: UiState) {
     val range = if (state.radarRangeM > 0f) state.radarRangeM.toDouble() else autoRange(state)
+    val lo = state.samples.minOfOrNull { it.rssi } ?: -100.0
+    val hi = max(state.samples.maxOfOrNull { it.rssi } ?: -40.0, lo + 6.0) // colour scale spans this walk's own min..max
+    val strongest = state.samples.maxByOrNull { it.rssi }
+    val tm = rememberTextMeasurer()
     val ringStep = niceStep(range)
     val sweepT by rememberInfiniteTransition(label = "sweep").animateFloat(
         0f, 360f, infiniteRepeatable(tween(4000, easing = LinearEasing)), label = "sw",
@@ -435,9 +451,23 @@ private fun Radar(state: UiState) {
                 drawLine(Color.White.copy(0.18f), toScreen(a.x, a.y), toScreen(b.x, b.y), 3f)
             }
             state.samples.forEach {
-                val col = heatColor(rssiToColor01(it.rssi).toFloat())
+                val col = ragColor(((it.rssi - lo) / (hi - lo)).toFloat())
                 val p = toScreen(it.x, it.y)
                 drawCircle(col.copy(0.35f), 16f, p); drawCircle(col, 8f, p)
+            }
+
+            // strongest reading: gold star in a ring, with a label
+            if (strongest != null && state.samples.size >= 2) {
+                val p = toScreen(strongest.x, strongest.y)
+                val gold = Color(0xFFFFD700)
+                drawCircle(gold.copy(0.18f), 34f, p)
+                drawCircle(gold, 28f, p, style = Stroke(3f))
+                star(p, 15f, gold)
+                val layout = tm.measure("STRONGEST ${strongest.rssi.roundToInt()} dBm", TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                val lx = (p.x - layout.size.width / 2f).coerceIn(4f, size.width - layout.size.width - 4f)
+                val ly = if (p.y - 44f - layout.size.height > 4f) p.y - 40f - layout.size.height else p.y + 40f
+                drawRect(Color(0xCC050818), Offset(lx - 4f, ly - 2f), androidx.compose.ui.geometry.Size(layout.size.width + 8f, layout.size.height + 4f))
+                drawText(layout, gold, Offset(lx, ly))
             }
 
             // where the app wants the next reading from
@@ -470,9 +500,24 @@ private fun Radar(state: UiState) {
     }
     Text(
         "Rings every ${if (ringStep < 1) "%.1f".format(ringStep) else ringStep.roundToInt()} m · range ${range.roundToInt()} m · " +
-            "cyan dashed ring = suggested next reading spot · red dot = start-up north · dots coloured by signal strength",
+            "cyan dashed ring = suggested next reading spot · red dot = start-up north",
         color = Color.White.copy(0.55f), fontSize = 11.sp, lineHeight = 15.sp,
     )
+    if (state.samples.isNotEmpty()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("${lo.roundToInt()} dBm", color = Color.White.copy(0.7f), fontSize = 11.sp)
+            Box(
+                Modifier.weight(1f).height(8.dp).clip(CircleShape)
+                    .background(Brush.horizontalGradient(listOf(ragColor(0f), ragColor(0.5f), ragColor(1f)))),
+            )
+            Text("${hi.roundToInt()} dBm", color = Color.White.copy(0.7f), fontSize = 11.sp)
+        }
+        Text(
+            "Dots go from red (weakest reading on this walk) to green (strongest); the gold star marks the single strongest reading, " +
+                "which is a good place to start looking.",
+            color = Color.White.copy(0.55f), fontSize = 11.sp, lineHeight = 15.sp,
+        )
+    }
 }
 
 private fun DrawScope.star(center: Offset, r: Float, color: Color) {
@@ -491,17 +536,19 @@ private fun DrawScope.star(center: Offset, r: Float, color: Color) {
 
 @Composable
 private fun SettingsCard(state: UiState, a: TrackerActions) {
-    val totalIn = state.heightCm / 2.54
-    val ft = (totalIn / 12).toInt()
-    val inch = (totalIn - ft * 12).roundToInt()
+    val ft = state.heightIn / 12
+    val inch = state.heightIn % 12
     val sliderColors = SliderDefaults.colors(thumbColor = NeonCyan, activeTrackColor = NeonCyan)
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(NavyCard).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Label("CALIBRATION")
-        Text("Your height: ${state.heightCm} cm ($ft′$inch″)", color = Color.White, fontWeight = FontWeight.SemiBold)
-        Slider(value = state.heightCm.toFloat(), onValueChange = { a.onHeightCm(it.roundToInt()) }, valueRange = 140f..210f, colors = sliderColors)
+        Text("Your height: $ft′ $inch″", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Slider(
+            value = state.heightIn.toFloat(), onValueChange = { a.onHeightIn(it.roundToInt()) },
+            valueRange = 55f..83f, steps = 27, colors = sliderColors, // 4′ 7″ to 6′ 11″ in one-inch steps
+        )
         Text(
             "Estimated stride: ${"%.2f".format(state.strideM)} m (a walking stride is about 41.5% of height). The app counts your steps and multiplies " +
                 "by this to work out how far you moved, so a wrong height scales the whole map without changing directions much.",
@@ -527,14 +574,17 @@ private fun SettingsCard(state: UiState, a: TrackerActions) {
             Text("Smaller radius = everything looks bigger. Lower it to see short walks in detail.", color = Color.White.copy(0.65f), fontSize = 12.sp)
         }
 
+        ConfirmReset(state, a.onReset) { open ->
+            Text(
+                "Reset samples", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(50))
+                    .background(Brush.horizontalGradient(listOf(NeonMagenta, NeonOrange)))
+                    .clickable(onClick = open).padding(horizontal = 20.dp, vertical = 10.dp),
+            )
+        }
         Text(
-            "Reset trail", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp,
-            modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(50))
-                .background(Brush.horizontalGradient(listOf(NeonMagenta, NeonOrange)))
-                .clickable(onClick = a.onReset).padding(horizontal = 20.dp, vertical = 10.dp),
-        )
-        Text(
-            "${state.steps} steps counted · position drifts over time, so reset if the trail stops matching reality.",
+            "${state.steps} steps counted · samples are collected from every ${if (state.kind == RadioKind.WIFI) "network" else "device"} in the background " +
+                "(${state.totalReadings} so far), so switching targets reuses the walking you've already done. Position drifts over time, so reset if the trail stops matching reality.",
             color = Color.White.copy(0.55f), fontSize = 11.sp,
         )
     }

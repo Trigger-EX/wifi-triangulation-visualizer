@@ -19,7 +19,10 @@ data class ScanResultUi(
     val freqMhz: Int,
     val timestampUs: Long,
 ) {
+    val isBle: Boolean get() = freqMhz == 0
+
     val band: String get() = when {
+        isBle -> "Bluetooth LE"
         freqMhz >= 5925 -> "6 GHz"
         freqMhz >= 4900 -> "5 GHz"
         else -> "2.4 GHz"

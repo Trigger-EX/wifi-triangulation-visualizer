@@ -24,6 +24,16 @@ position (dead-reckoned from the step detector + compass) and estimates the dire
 
 Pure logic lives in `core/` (no Android imports) with JVM unit tests in `app/src/test`.
 
+## Background sampling, Bluetooth and the radar
+- **Every network, all the time.** While the app is open, every WiFi network (or Bluetooth device) heard is recorded at your dead-reckoned
+  position, not just the selected one. Switching targets reuses that history, so a network you've already walked around is estimated
+  immediately. The list shows how many samples each target has. **Reset samples** (with a confirm prompt) wipes everything and restarts the origin.
+- **Bluetooth radar.** A separate screen (WiFi | Bluetooth tabs) uses a continuous BLE scan: many readings per second, median-filtered and merged while
+  you stand still, with BLE-specific model parameters (about −60 dBm at 1 m). Phones and many wearables rotate their addresses, so prefer
+  trackers, beacons, speakers or earbuds.
+- **Radar colours.** Samples run red (weakest on this walk) to green (strongest); the strongest reading gets a gold star and label.
+- **Height** is entered in feet and inches (stride ≈ 41.5% of height).
+
 ## No compass? Fallback heading
 Position tracking only needs *relative* headings, so a broken or disturbed compass isn't fatal. The app walks down a fallback chain
 (automatically when a sensor is missing, silent for 3 s, or reports UNRELIABLE; or forced via Settings → "Use compass"):

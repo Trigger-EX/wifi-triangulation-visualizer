@@ -21,7 +21,11 @@ import androidx.compose.ui.unit.sp
 import com.wifitri.visualizer.ui.theme.*
 
 @Composable
-fun PermissionGate(onGrant: () -> Unit) {
+fun PermissionGate(
+    body: String = "To scan networks and track your steps, the app needs Location (Android requires it for WiFi scans), " +
+        "Nearby devices and Physical activity permissions. Nothing leaves your phone.",
+    onGrant: () -> Unit,
+) {
     Column(
         Modifier.fillMaxSize()
             .background(Brush.verticalGradient(listOf(Navy, Color(0xFF2A0A4A), Color(0xFF05324A))))
@@ -32,8 +36,7 @@ fun PermissionGate(onGrant: () -> Unit) {
         Text("📡", fontSize = 72.sp)
         Text("WiFi Compass", fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = NeonCyan)
         Text(
-            "To scan networks and track your steps, the app needs Location (Android requires it for WiFi scans), " +
-                "Nearby devices and Physical activity permissions. Nothing leaves your phone.",
+            body,
             color = Color.White.copy(alpha = 0.85f), textAlign = TextAlign.Center,
             modifier = Modifier.padding(vertical = 24.dp),
         )

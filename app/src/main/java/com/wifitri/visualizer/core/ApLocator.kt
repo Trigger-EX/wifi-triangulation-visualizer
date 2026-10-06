@@ -22,16 +22,19 @@ import kotlin.math.sqrt
  * 2) Once the walk has width, a log-distance path-loss model is fitted (grid search + Gauss-Newton)
  *    to get an actual position and a spatial uncertainty.
  */
-class ApLocator(private val pathLossN: Double = 2.5) {
+class ApLocator(
+    private val pathLossN: Double = 2.5,
+    /** Typical RSSI at 1 m: about -40 dBm for WiFi, about -60 dBm for Bluetooth LE beacons/phones. */
+    private val p0Prior: Double = -40.0,
+    /** Typical scatter of a single (smoothed) RSSI reading in dB. */
+    private val noiseDb: Double = 3.0,
+) {
     private var lastBearing: Double? = null
 
     fun reset() { lastBearing = null }
 
     private companion object {
-        const val P0_PRIOR = -40.0
         const val PRIOR_WEIGHT = 0.3
-        /** Typical scatter of a single RSSI reading (dB) from multipath and body shadowing. */
-        const val NOISE_DB = 3.0
         const val MIN_BASELINE_M = 2.0
     }
 
@@ -62,7 +65,7 @@ class ApLocator(private val pathLossN: Double = 2.5) {
     }
 
     private fun gradient(s: List<Sample>, now: Long): ApEstimate? {
-        val w = s.map { exp(-(now - it.tMs).coerceAtLeast(0) / 1000.0 / 60.0) }
+        val w = s.map { exp(-(now - it.tMs).coerceAtLeast(0) / 1000.0 / 300.0) }
         val sw = w.sum()
         val mx = s.indices.sumOf { w[it] * s[it].x } / sw
         val my = s.indices.sumOf { w[it] * s[it].y } / sw
@@ -88,13 +91,13 @@ class ApLocator(private val pathLossN: Double = 2.5) {
             }
             if (stt < 1e-9) return null
             val slope = str / stt
-            val z = abs(slope) / (NOISE_DB / sqrt(stt)) // slope in units of its own standard error
+            val z = abs(slope) / (noiseDb / sqrt(stt)) // slope in units of its own standard error
             val sgn = if (slope >= 0) 1.0 else -1.0
             val bearing = atan2(sgn * ex, sgn * ey)
             // Along-track direction is known, but the sideways offset is not: best case is the +-90 deg half-plane.
             val sigma = if (z < 1.0) PI else (PI / 2) * (1 - 0.25 * min(1.0, (z - 1) / 3))
             val conf = if (z < 1.0) 0.0 else min(1.0, z / 4) * 0.4
-            val dist = 10.0.pow((-40.0 - cur.rssi) / 25.0)
+            val dist = 10.0.pow((p0Prior - cur.rssi) / 25.0)
             return ApEstimate(cur.x + dist * sin(bearing), cur.y + dist * cos(bearing), bearing, dist, conf, Method.GRADIENT, sigma)
         }
 
@@ -103,7 +106,7 @@ class ApLocator(private val pathLossN: Double = 2.5) {
         val n = s.size
         val ssRes = srr - gx * sxr - gy * syr
         val resStd = if (n > 3) sqrt(max(ssRes, 0.0) / (sw * (n - 3) / n)) else 0.0
-        val sn2 = max(NOISE_DB, resStd).pow(2)
+        val sn2 = max(noiseDb, resStd).pow(2)
         val c11 = sn2 * syy / det; val c22 = sn2 * sxx / det; val c12 = -sn2 * sxy / det
         val mag = hypot(gx, gy)
         val bearing = atan2(gx, gy)
@@ -116,12 +119,12 @@ class ApLocator(private val pathLossN: Double = 2.5) {
         }
         val r2 = if (srr > 1e-9) (1 - ssRes / srr).coerceIn(0.0, 1.0) else 0.0
         val conf = (mag / 1.5).coerceIn(0.0, 1.0) * r2 * (1 - sigma / PI)
-        val dist = 10.0.pow((-40.0 - cur.rssi) / 25.0)
+        val dist = 10.0.pow((p0Prior - cur.rssi) / 25.0)
         return ApEstimate(cur.x + dist * sin(bearing), cur.y + dist * cos(bearing), bearing, dist, conf, Method.GRADIENT, sigma)
     }
 
     private fun pathLossFit(s: List<Sample>, now: Long): ApEstimate? {
-        val w = s.map { exp(-(now - it.tMs).coerceAtLeast(0) / 1000.0 / 120.0) + 0.05 }
+        val w = s.map { exp(-(now - it.tMs).coerceAtLeast(0) / 1000.0 / 600.0) + 0.05 }
         val k = 10.0 * pathLossN
         val minX = s.minOf { it.x } - 15; val maxX = s.maxOf { it.x } + 15
         val minY = s.minOf { it.y } - 15; val maxY = s.maxOf { it.y } + 15
@@ -134,8 +137,8 @@ class ApLocator(private val pathLossN: Double = 2.5) {
             }
             // soft prior: typical RSSI at 1 m is about -40 dBm, which stops far-away fits from absorbing noise into P0
             val lambda = PRIOR_WEIGHT * sw
-            val p0 = (sp + lambda * P0_PRIOR) / (sw + lambda)
-            var sse = lambda * (p0 - P0_PRIOR).pow(2)
+            val p0 = (sp + lambda * p0Prior) / (sw + lambda)
+            var sse = lambda * (p0 - p0Prior).pow(2)
             for (i in s.indices) { val e = s[i].rssi - (p0 - l[i]); sse += w[i] * e * e }
             return sse to p0
         }

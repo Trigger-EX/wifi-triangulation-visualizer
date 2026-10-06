@@ -20,6 +20,8 @@ class Pdr(var stepLengthM: Double = 0.7) {
         /** Typical walking stride is about 41.5% of body height. */
         fun strideFromHeightM(heightCm: Double): Double = 0.415 * heightCm / 100.0
 
+        fun strideFromHeightInches(inches: Int): Double = strideFromHeightM(inches * 2.54)
+
         /** Weinberg step-length model from accel peak-to-peak. */
         fun stepLengthFromAccel(peakToPeak: Double): Double =
             (0.45 * peakToPeak.coerceAtLeast(0.0).pow(0.25)).coerceIn(0.4, 1.0)

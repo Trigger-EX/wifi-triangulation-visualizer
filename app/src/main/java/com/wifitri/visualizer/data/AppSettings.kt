@@ -19,9 +19,10 @@ class AppSettings(context: Context) {
         get() = p.getInt("saved_throttle", -1)
         set(v) = p.edit().putInt("saved_throttle", v).apply()
 
-    var heightCm: Int
-        get() = p.getInt("height_cm", 170)
-        set(v) = p.edit().putInt("height_cm", v).apply()
+    /** Body height in total inches (5′ 7″ = 67). */
+    var heightIn: Int
+        get() = p.getInt("height_in", 67)
+        set(v) = p.edit().putInt("height_in", v).apply()
 
     /** Fraction of the screen width used by the radar. */
     var radarSize: Float

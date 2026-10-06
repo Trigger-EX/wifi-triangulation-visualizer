@@ -145,5 +145,58 @@ class CoreTest {
 
     @Test fun strideFromHeight() {
         assertEquals(0.7055, Pdr.strideFromHeightM(170.0), 1e-4)
+        assertEquals(0.6008, Pdr.strideFromHeightInches(57), 1e-3) // 4′ 9″
+        assertTrue(Pdr.strideFromHeightInches(64) < Pdr.strideFromHeightInches(76)) // taller -> longer stride
+    }
+
+    @Test fun engineMergesNearbyReadingsWhenAsked() {
+        val e = TrackerEngine({ ApLocator() }, 67, mergeRadiusM = 0.5)
+        e.select("a")
+        e.addReading("a", -60.0, 0.0, 0L); e.addReading("a", -58.0, 0.0, 100L)
+        assertEquals(1, e.snapshot().size) // same spot: merged
+        repeat(3) { e.pdr.onStep(0.0) } // walk ~2 m
+        e.addReading("a", -55.0, 0.0, 200L)
+        assertEquals(2, e.snapshot().size)
+        val plain = TrackerEngine({ ApLocator() }, 67)
+        plain.select("a")
+        plain.addReading("a", -60.0, 0.0, 0L); plain.addReading("a", -58.0, 0.0, 100L)
+        assertEquals(2, plain.snapshot().size) // WiFi mode: every scan is a sample
+    }
+
+    @Test fun engineRecordsEveryNetworkAndKeepsHistoryAcrossSelection() {
+        val e = TrackerEngine({ ApLocator() }, 67)
+        e.select("A")
+        for (i in 0 until 6) {
+            assertEquals(i >= 0, e.addReading("A", -60.0 - i, 0.0, i * 1000L)) // selected
+            assertTrue(!e.addReading("B", -70.0 + i, 0.0, i * 1000L)) // background network
+            repeat(3) { e.pdr.onStep(0.0) }
+        }
+        assertEquals(6, e.snapshot("A").size)
+        e.select("B") // switching target must not need new samples
+        assertEquals(6, e.snapshot().size)
+        assertEquals(setOf("A", "B"), e.counts().keys)
+        assertEquals(12, e.totalReadings())
+        // the history carries real positions, so B can be estimated at once
+        assertTrue(e.estimate(e.snapshot()).method != Method.NONE)
+    }
+
+    @Test fun resetClearsEverythingButKeepsSelection() {
+        val e = TrackerEngine({ ApLocator() }, 67)
+        e.select("A")
+        e.addReading("A", -60.0, 0.0, 0L); e.addReading("B", -70.0, 0.0, 0L)
+        repeat(4) { e.pdr.onStep(0.0) }
+        e.resetAll()
+        assertEquals(0, e.totalReadings())
+        assertTrue(e.snapshot().isEmpty())
+        assertEquals(0.0, e.pdr.y, 1e-9)
+        assertTrue(e.addReading("A", -61.0, 0.0, 10L)) // still the selected target
+    }
+
+    @Test fun bleParametersShiftDistanceEstimate() {
+        // same RSSI means a nearer device under the BLE prior (-60 dBm at 1 m) than under the WiFi prior (-40 dBm)
+        val s = listOf(Sample(0.0, 0.0, -75.0, 0.0, 0L), Sample(0.0, 4.0, -60.0, 0.0, 10_000L))
+        val wifi = ApLocator().estimate(s)
+        val ble = ApLocator(2.2, -60.0, 3.5).estimate(s)
+        assertTrue(ble.distanceM < wifi.distanceM)
     }
 }

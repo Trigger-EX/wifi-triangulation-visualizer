@@ -1,6 +1,7 @@
 package com.wifitri.visualizer
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -11,23 +12,40 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.wifitri.visualizer.ui.MainViewModel
+import com.wifitri.visualizer.ui.BleViewModel
+import com.wifitri.visualizer.ui.ModeTabs
 import com.wifitri.visualizer.ui.NetworkListScreen
 import com.wifitri.visualizer.ui.PermissionGate
+import com.wifitri.visualizer.ui.RadioKind
 import com.wifitri.visualizer.ui.SettingsScreen
 import com.wifitri.visualizer.ui.TrackerActions
 import com.wifitri.visualizer.ui.TrackerScreen
+import com.wifitri.visualizer.ui.WifiViewModel
 import com.wifitri.visualizer.ui.theme.AppTheme
 import com.wifitri.visualizer.ui.theme.Navy
 
 class MainActivity : ComponentActivity() {
-    private val vm: MainViewModel by viewModels()
+    private val wifiVm: WifiViewModel by viewModels()
+    private val bleVm: BleViewModel by viewModels()
     private var granted = false
+    private var bleGranted = false
+    private var mode = RadioKind.WIFI
+
+    private val needsBlePermission get() = Build.VERSION.SDK_INT >= 31
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,37 +57,63 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AppTheme {
-                var ok by androidx.compose.runtime.remember {
-                    androidx.compose.runtime.mutableStateOf(perms.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED })
-                }
+                var ok by remember { mutableStateOf(perms.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }) }
                 val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
-                    // Activity recognition is optional (accelerometer fallback); location + wifi are required.
+                    // Activity recognition is optional (accelerometer fallback); location is required.
                     ok = r[Manifest.permission.ACCESS_FINE_LOCATION] == true
-                    
                 }
-                granted = ok
-                androidx.compose.runtime.LaunchedEffect(ok) { if (ok) vm.start() }
+                var bleOk by remember {
+                    mutableStateOf(!needsBlePermission || checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED)
+                }
+                val bleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { bleOk = it }
+                var mode by rememberSaveable { mutableStateOf(RadioKind.WIFI) }
+                var showSettings by rememberSaveable { mutableStateOf(false) }
+
+                granted = ok; bleGranted = bleOk; this@MainActivity.mode = mode
+                val vm = if (mode == RadioKind.WIFI) wifiVm else bleVm
                 val state by vm.state.collectAsStateWithLifecycle()
-                var showSettings by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+                val wifiState by wifiVm.state.collectAsStateWithLifecycle()
+
+                // Only the visible radio scans; the other one is stopped (and WiFi throttling restored).
+                LaunchedEffect(mode, ok, bleOk) {
+                    wifiVm.stop(); bleVm.stop()
+                    if (ok && (mode == RadioKind.WIFI || bleOk)) vm.start()
+                }
+
+                val tabs: @Composable () -> Unit = { ModeTabs(mode) { mode = it } }
                 Box(Modifier.fillMaxSize().background(Navy)) {
                     when {
                         !ok -> PermissionGate { launcher.launch(perms) }
                         showSettings -> {
                             BackHandler { showSettings = false }
                             SettingsScreen(
-                                state, onBack = { showSettings = false },
-                                onAutoThrottle = vm::setAutoDisableThrottle, onCompass = vm::setCompassEnabled,
-                                onRecheck = vm::refreshThrottleStatus,
+                                wifiState.copy(headingSource = state.headingSource), onBack = { showSettings = false },
+                                onAutoThrottle = wifiVm::setAutoDisableThrottle,
+                                onCompass = { wifiVm.setCompassEnabled(it); bleVm.setCompassEnabled(it) },
+                                onRecheck = wifiVm::refreshThrottleStatus,
                             )
                         }
-                        state.selected == null -> NetworkListScreen(state, vm::select, onSettings = { showSettings = true })
+                        mode == RadioKind.BLUETOOTH && !bleOk -> Column(Modifier.statusBarsPadding()) {
+                            Box(Modifier.padding(16.dp)) { tabs() }
+                            PermissionGate(
+                                body = "Bluetooth scanning needs the “Nearby devices” permission (Android 12+). Nothing leaves your phone.",
+                            ) { bleLauncher.launch(Manifest.permission.BLUETOOTH_SCAN) }
+                        }
+                        state.selected == null -> NetworkListScreen(
+                            state, vm::select, onSettings = { showSettings = true }, modeTabs = tabs,
+                            onHideUnnamed = bleVm::setHideUnnamed,
+                            onResetAll = vm::resetAllSamples,
+                        )
                         else -> {
                             BackHandler { vm.select(null) }
                             TrackerScreen(
                                 state,
                                 TrackerActions(
-                                    onBack = { vm.select(null) }, onReset = vm::resetTrail, onSettings = { showSettings = true },
-                                    onHeightCm = vm::setHeightCm, onRadarSize = vm::setRadarSize, onRadarRange = vm::setRadarRange,
+                                    onBack = { vm.select(null) }, onReset = vm::resetAllSamples, onSettings = { showSettings = true },
+                                    // display + calibration settings apply to both radios
+                                    onHeightIn = { wifiVm.setHeightInches(it); bleVm.setHeightInches(it) },
+                                    onRadarSize = { wifiVm.setRadarSize(it); bleVm.setRadarSize(it) },
+                                    onRadarRange = { wifiVm.setRadarRange(it); bleVm.setRadarRange(it) },
                                 ),
                             )
                         }
@@ -79,7 +123,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() { super.onStart(); if (granted) vm.start() }
-    override fun onResume() { super.onResume(); if (granted) vm.refreshThrottleStatus() }
-    override fun onStop() { super.onStop(); vm.stop() }
+    private val active get() = if (mode == RadioKind.WIFI) wifiVm else bleVm
+
+    override fun onStart() {
+        super.onStart()
+        if (granted && (mode == RadioKind.WIFI || bleGranted)) active.start()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (granted && mode == RadioKind.WIFI) wifiVm.refreshThrottleStatus()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        wifiVm.stop(); bleVm.stop()
+    }
 }
