@@ -32,6 +32,7 @@ import com.wifitri.visualizer.ui.MapScreen
 import com.wifitri.visualizer.ui.ModeTabs
 import com.wifitri.visualizer.ui.NetworkListScreen
 import com.wifitri.visualizer.ui.PermissionGate
+import com.wifitri.visualizer.ui.RecorderActions
 import com.wifitri.visualizer.ui.RadioKind
 import com.wifitri.visualizer.ui.SettingsScreen
 import com.wifitri.visualizer.ui.TrackerActions
@@ -147,6 +148,7 @@ class MainActivity : ComponentActivity() {
                             onHideUnnamed = bleVm::setHideUnnamed,
                             onResetAll = vm::resetAllSamples,
                             onTogglePause = { vm.setScanPaused(!state.scanPaused) },
+                            recorder = RecorderActions(vm::startRecording, vm::stopRecording, vm::dropMarker),
                         )
                         else -> {
                             BackHandler { vm.select(null) }
@@ -159,6 +161,7 @@ class MainActivity : ComponentActivity() {
                                     onRadarSize = { wifiVm.setRadarSize(it); bleVm.setRadarSize(it) },
                                     onRadarRange = { wifiVm.setRadarRange(it); bleVm.setRadarRange(it) },
                                     onTogglePause = { vm.setScanPaused(!state.scanPaused) },
+                                    recorder = RecorderActions(vm::startRecording, vm::stopRecording, vm::dropMarker),
                                 ),
                             )
                         }

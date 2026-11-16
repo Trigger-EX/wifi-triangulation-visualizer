@@ -65,6 +65,7 @@ fun NetworkListScreen(
     onHideUnnamed: (Boolean) -> Unit = {},
     onResetAll: () -> Unit = {},
     onTogglePause: () -> Unit = {},
+    recorder: RecorderActions? = null,
 ) {
     val ble = state.kind == RadioKind.BLUETOOTH
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -112,6 +113,7 @@ fun NetworkListScreen(
                 color = Color.White.copy(0.55f), fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
             )
         } else if (state.throttled) ThrottleBanner()
+        if (recorder != null) Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { RecorderBar(state, recorder) }
         Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (state.sampleCounts.isEmpty()) "Samples are collected from every ${if (ble) "device" else "network"} in the background as you walk, " +

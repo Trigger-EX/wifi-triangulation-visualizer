@@ -270,4 +270,24 @@ class CoreTest {
         assertTrue(h.all { it.rssi in -60.001..-49.999 }) // interpolates, never extrapolates
         assertTrue(h.none { hypot(it.x - 1.0, it.y) > 6.0 })
     }
+
+    // ---- session recorder ----
+
+    @Test fun recorderWritesParsableLinesAndEscapes() {
+        val dir = java.io.File(System.getProperty("java.io.tmpdir"), "rec-test-" + System.nanoTime())
+        val r = com.wifitri.visualizer.tracking.SessionRecorder(dir)
+        val f = r.start(mapOf("device" to "Test \"Phone\"", "heightIn" to 67), nowMs = 1000L)
+        r.reading(1100L, "wifi", "aa:bb", "My \"Home\"\nWiFi", -61.0, 2412, 123456L, 1.5, -2.25)
+        r.heading(1200L, 0.5, "GYRO"); r.heading(1250L, 0.6, "GYRO") // second one is inside the 200 ms window
+        assertEquals("M1", r.marker(1300L, "mark", 0.0, 1.0, ""))
+        assertEquals("AP2", r.marker(1400L, "ap", 3.0, 4.0, "aa:bb"))
+        r.stop()
+        val lines = f.readLines()
+        assertEquals(5, lines.size) // header, reading, one heading (the second is rate-limited), two markers
+        assertTrue(lines[0].startsWith("{\"e\":\"header\""))
+        assertTrue(lines[1].contains("\"name\":\"My \\\"Home\\\"\\nWiFi\""))
+        assertTrue(lines[1].contains("\"rssi\":-61") && lines[1].contains("\"y\":-2.25"))
+        assertTrue(lines.all { it.startsWith("{") && it.endsWith("}") })
+        f.delete()
+    }
 }

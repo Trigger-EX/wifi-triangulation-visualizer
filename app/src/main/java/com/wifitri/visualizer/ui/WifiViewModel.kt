@@ -21,7 +21,10 @@ class WifiViewModel(app: Application) : BaseTrackerViewModel(app, RadioKind.WIFI
         viewModelScope.launch { scanner.results.collect { onScan(it) } }
         viewModelScope.launch { scanner.throttled.collect { t -> _state.update { it.copy(throttled = t) } } }
         viewModelScope.launch {
-            scanner.stats.collect { st -> _state.update { it.copy(scansAccepted = st.accepted, scansRefused = st.refused, scanIntervalMs = st.currentIntervalMs) } }
+            scanner.stats.collect { st ->
+                _state.update { it.copy(scansAccepted = st.accepted, scansRefused = st.refused, scanIntervalMs = st.currentIntervalMs) }
+                if (hub.recorder.active) hub.recorder.scanStats(System.currentTimeMillis(), st.accepted, st.refused, st.currentIntervalMs)
+            }
         }
         scanner.fastMode = settings.autoDisableThrottle
         viewModelScope.launch { scanner.lastResultAtMs.collect { t -> _state.update { it.copy(lastReadingMs = t) } } }
@@ -71,7 +74,7 @@ class WifiViewModel(app: Application) : BaseTrackerViewModel(app, RadioKind.WIFI
         for (r in list) {
             if (lastTimestampUs[r.bssid] == r.timestampUs) continue // same scan result as last time
             lastTimestampUs[r.bssid] = r.timestampUs
-            ingest(r.bssid, r.rssi.toDouble())
+            ingest(r.bssid, r.rssi.toDouble(), r.ssid, r.freqMhz, r.timestampUs)
         }
     }
 

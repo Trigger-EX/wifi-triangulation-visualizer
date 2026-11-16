@@ -7,6 +7,7 @@ import com.wifitri.visualizer.core.Phase
 import com.wifitri.visualizer.core.Sample
 import com.wifitri.visualizer.core.Waypoint
 import com.wifitri.visualizer.sensors.HeadingSource
+import com.wifitri.visualizer.tracking.RecInfo
 import com.wifitri.visualizer.wifi.ScanResultUi
 import com.wifitri.visualizer.wifi.ThrottleStatus
 
@@ -53,6 +54,7 @@ data class UiState(
     val scanPaused: Boolean = false,
     val throttleDiag: String = "",
     val map: MapModel = MapModel.EMPTY,
+    val rec: RecInfo = RecInfo(),
     val scansAccepted: Int = 0,
     val scansRefused: Int = 0,
 )

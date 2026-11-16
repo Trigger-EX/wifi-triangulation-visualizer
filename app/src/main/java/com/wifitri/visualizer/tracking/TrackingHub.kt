@@ -24,6 +24,8 @@ class TrackingHub(app: Application) {
     val heading = HeadingProvider(app)
     val steps = StepProvider(app)
     val engine = TrackerEngine(settings.heightIn)
+    val recorder = SessionRecorder(java.io.File(app.cacheDir, "recordings"))
+    val deviceInfo = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE}, API ${android.os.Build.VERSION.SDK_INT})"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _position = MutableStateFlow(PosFix(0.0, 0.0, 0))
@@ -39,14 +41,28 @@ class TrackingHub(app: Application) {
             steps.steps.collect {
                 engine.onStep(heading.heading.value)
                 _position.value = PosFix(engine.pdr.x, engine.pdr.y, _position.value.steps + 1)
+                recorder.step(System.currentTimeMillis(), engine.pdr.x, engine.pdr.y, _position.value.steps, heading.heading.value)
             }
         }
+        scope.launch { heading.heading.collect { recorder.heading(System.currentTimeMillis(), it, heading.source.value.name) } }
+        scope.launch { heading.source.collect { recorder.source(System.currentTimeMillis(), it.name) } }
     }
 
     fun acquire() { if (refs++ == 0) { heading.start(); steps.start() } }
     fun release() { if (refs > 0 && --refs == 0) { heading.stop(); steps.stop() } }
 
+    /** Starts a recording with everything needed to interpret it later. */
+    fun startRecording(extra: Map<String, Any?> = emptyMap()) {
+        val header = linkedMapOf<String, Any?>(
+            "device" to deviceInfo, "heightIn" to settings.heightIn, "strideM" to engine.pdr.stepLengthM,
+            "compassEnabled" to settings.compassEnabled, "headingSource" to heading.source.value.name, "format" to 1,
+        )
+        header.putAll(extra)
+        recorder.start(header)
+    }
+
     fun resetAll() {
+        recorder.stop() // a reset changes the coordinate frame, so end the recording rather than mix frames
         engine.resetAll()
         _position.value = PosFix(0.0, 0.0, 0)
         _resets.value += 1

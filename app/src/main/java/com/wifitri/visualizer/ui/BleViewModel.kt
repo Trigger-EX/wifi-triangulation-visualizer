@@ -36,7 +36,7 @@ class BleViewModel(app: Application) : BaseTrackerViewModel(
                 if (r.address == _state.value.selected?.bssid) _state.update { it.copy(lastReadingMs = r.tMs) }
                 if (r.tMs - (lastIngestMs[r.address] ?: 0L) < INGEST_INTERVAL_MS || buf.size < 3) return@collect
                 lastIngestMs[r.address] = r.tMs
-                ingest(r.address, buf.sorted()[buf.size / 2].toDouble()) // median
+                ingest(r.address, buf.sorted()[buf.size / 2].toDouble(), allDevices.firstOrNull { it.bssid == r.address }?.ssid ?: "") // median
                 if (recent.size > 600) { recent.clear(); lastIngestMs.clear() }
             }
         }

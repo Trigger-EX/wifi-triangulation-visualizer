@@ -77,6 +77,7 @@ class TrackerActions(
     val onRadarSize: (Float) -> Unit,
     val onRadarRange: (Float) -> Unit,
     val onTogglePause: () -> Unit,
+    val recorder: RecorderActions,
 )
 
 private fun deg(rad: Double) = Math.toDegrees(rad)
@@ -106,6 +107,7 @@ fun TrackerScreen(state: UiState, actions: TrackerActions) {
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(NeonOrange)
                 .clickable(onClick = actions.onTogglePause).padding(10.dp),
         )
+        RecorderBar(state, actions.recorder)
         GuidanceCard(state, guide, heat, now)
 
         Compass(state, heat)

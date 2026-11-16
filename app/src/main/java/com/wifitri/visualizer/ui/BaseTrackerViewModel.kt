@@ -50,6 +50,7 @@ abstract class BaseTrackerViewModel(
     private var dirty = false
 
     init {
+        viewModelScope.launch { hub.recorder.info.collect { r -> _state.update { it.copy(rec = r) } } }
         viewModelScope.launch { hub.heading.source.collect { src -> _state.update { it.copy(headingSource = src) } } }
         viewModelScope.launch { hub.heading.heading.collect { h -> _state.update { refreshGuidance(it.copy(headingRad = h)) } } }
         viewModelScope.launch {
@@ -125,9 +126,10 @@ abstract class BaseTrackerViewModel(
     private fun ownCounts() = engine.counts().filterKeys { it.startsWith(prefix) }.mapKeys { it.key.removePrefix(prefix) }
 
     /** Records one RSSI reading for [id] at the current position; only the selected target triggers a re-estimate. */
-    protected fun ingest(id: String, rssi: Double) {
+    protected fun ingest(id: String, rssi: Double, name: String = "", freqMhz: Int = 0, scanTsUs: Long = 0L) {
         val now = System.currentTimeMillis()
         val isSelected = engine.addReading(prefix + id, rssi, hub.heading.heading.value, now, mergeRadiusM)
+        if (hub.recorder.active) hub.recorder.reading(now, if (prefix == "w:") "wifi" else "ble", id, name, rssi, freqMhz, scanTsUs, engine.pdr.x, engine.pdr.y)
         if (now - lastCountsMs > 500) {
             lastCountsMs = now
             _state.update { it.copy(sampleCounts = ownCounts(), totalReadings = engine.totalReadings()) }
@@ -142,6 +144,7 @@ abstract class BaseTrackerViewModel(
             val est = withContext(Dispatchers.Default) { engine.estimate(snapshot) }
             val heading = hub.heading.heading.value
             val r = engine.finish(est, snapshot, heading)
+            if (hub.recorder.active) logEstimate(est, snapshot.size, heading, r)
             _state.update {
                 refreshGuidance(
                     it.copy(
@@ -153,6 +156,29 @@ abstract class BaseTrackerViewModel(
             busy = false
             if (dirty) { dirty = false; recompute(engine.snapshot()) }
         }
+    }
+
+    private fun logEstimate(est: ApEstimate, n: Int, heading: Double, r: com.wifitri.visualizer.core.TrackerEngine.Result) {
+        val sel = _state.value.selected
+        hub.recorder.estimate(
+            System.currentTimeMillis(),
+            mapOf(
+                "target" to (sel?.bssid ?: ""), "name" to (sel?.ssid ?: ""), "n" to n, "method" to est.method.name,
+                "bearingWorld" to est.bearingWorldRad, "sigma" to est.bearingSigmaRad, "conf" to est.confidence, "dist" to est.distanceM,
+                "apX" to est.x, "apY" to est.y, "phase" to r.plan.phase.name, "locked" to r.locked,
+                "wpX" to r.plan.waypoint?.x, "wpY" to r.plan.waypoint?.y, "posX" to engine.pdr.x, "posY" to engine.pdr.y, "heading" to heading,
+            ),
+        )
+    }
+
+    // ---- session recording (for offline analysis) ----
+
+    fun startRecording() = hub.startRecording(mapOf("radio" to prefix))
+    fun stopRecording() { hub.recorder.stop() }
+
+    /** Drops a labelled marker at the current dead-reckoned position; kind "ap" = "I'm standing next to the access point". */
+    fun dropMarker(kind: String) {
+        hub.recorder.marker(System.currentTimeMillis(), kind, engine.pdr.x, engine.pdr.y, _state.value.selected?.bssid ?: "")
     }
 
     /** Rebuilds the experimental map from everything collected so far, from BOTH radios. */
